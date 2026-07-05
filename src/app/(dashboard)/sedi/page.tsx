@@ -3,22 +3,17 @@
 import { useEffect, useState } from 'react'
 import { queryDB, updateDB } from '@/lib/api'
 import { useAppStore } from '@/store'
+import type { Sede } from '@/types/database'
 import toast from 'react-hot-toast'
 
-interface SedeRow {
-  id: string; nome: string; indirizzo: string; citta: string
-  telefono: string | null; email: string | null; coperti_totali: number
-  attiva: boolean; created_at: string
-}
-
 export default function SediPage() {
-  const [sedi, setSedi] = useState<SedeRow[]>([])
+  const [sedi, setSedi] = useState<Sede[]>([])
   const [loading, setLoading] = useState(true)
   const { selectedSede, setSelectedSede } = useAppStore()
 
   useEffect(() => {
     async function load() {
-      const data = await queryDB<SedeRow>('sedi', { order: { col: 'nome' } })
+      const data = await queryDB<Sede>('sedi', { order: { col: 'nome' } })
       setSedi(data)
       setLoading(false)
     }
@@ -35,7 +30,7 @@ export default function SediPage() {
     }
   }
 
-  function selezionaSede(sede: SedeRow) {
+  function selezionaSede(sede: Sede) {
     setSelectedSede(sede)
     toast.success(`Sede selezionata: ${sede.nome}`)
   }
@@ -95,10 +90,12 @@ export default function SediPage() {
                     <span>{sede.email}</span>
                   </div>
                 )}
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-400">💺</span>
-                  <span>{sede.coperti_totali} coperti</span>
-                </div>
+                {sede.coperti_totali != null && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400">💺</span>
+                    <span>{sede.coperti_totali} coperti</span>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">

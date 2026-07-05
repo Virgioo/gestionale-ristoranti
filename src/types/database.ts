@@ -3,7 +3,8 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 // ── Row shapes ──────────────────────────────────────────────────────────────
 interface SedeRow {
   id: string; nome: string; indirizzo: string; citta: string
-  telefono: string | null; email: string | null; coperti_totali: number
+  telefono: string | null; email: string | null
+  coperti_totali?: number; capienza?: number
   attiva: boolean; created_at: string
 }
 interface ClienteRow {
