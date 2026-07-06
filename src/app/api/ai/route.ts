@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+export const dynamic = 'force-dynamic'
+
 const SYSTEM_PROMPT = `Sei un assistente AI specializzato nella gestione di ristoranti italiani.
 Il tuo nome è "Chef AI" e aiuti il personale del ristorante nelle operazioni quotidiane.
 
