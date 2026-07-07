@@ -10,8 +10,9 @@ import toast from 'react-hot-toast'
 import {
   LayoutDashboard, Users, CalendarDays, TrendingUp,
   Building2, UtensilsCrossed, UserCheck, Star,
-  Megaphone, Bell, Sparkles, LogOut, ChevronLeft, ChevronRight, LayoutGrid, Package, ClipboardList, ChefHat,
+  Megaphone, Bell, Sparkles, LogOut, ChevronLeft, ChevronRight, LayoutGrid, Package, ClipboardList, ChefHat, PlayCircle,
 } from 'lucide-react'
+import { isAdmin } from '@/lib/roles'
 
 const NAV = [
   { href: '/dashboard',    label: 'Dashboard',    Icon: LayoutDashboard },
@@ -31,11 +32,16 @@ const NAV = [
   { href: '/ai',           label: 'AI Assistant',  Icon: Sparkles },
 ]
 
+const NAV_ADMIN = [
+  { href: '/simulazione', label: 'Simulazione', Icon: PlayCircle },
+]
+
 export default function Sidebar() {
   const pathname  = usePathname()
   const router    = useRouter()
   const { sidebarCollapsed, toggleSidebar, unreadCount } = useAppStore()
   const [occupiedTavoli, setOccupiedTavoli] = useState(0)
+  const [adminUser,      setAdminUser]      = useState(false)
 
   useEffect(() => {
     async function fetchOccupied() {
@@ -47,6 +53,10 @@ export default function Sidebar() {
     fetchOccupied()
     const id = setInterval(fetchOccupied, 30_000)
     return () => clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    createClient().auth.getUser().then(({ data }) => setAdminUser(isAdmin(data?.user ?? null)))
   }, [])
 
   async function handleLogout() {
@@ -127,6 +137,42 @@ export default function Sidebar() {
           )
         })}
       </nav>
+
+      {/* Admin nav */}
+      {adminUser && (
+        <>
+          <div className="mx-2 my-1 border-t border-gray-800" />
+          {NAV_ADMIN.map(({ href, label, Icon }) => {
+            const active = pathname === href || pathname.startsWith(href)
+            return (
+              <Link
+                key={href}
+                href={href}
+                title={collapsed ? label : undefined}
+                className={[
+                  'flex items-center gap-2.5 rounded-md px-2 py-2 text-xs font-medium transition-colors relative',
+                  'border-l-2',
+                  active
+                    ? 'bg-gray-800 text-white border-violet-500'
+                    : 'text-gray-400 hover:bg-gray-800 hover:text-white border-transparent',
+                ].join(' ')}
+              >
+                <span className="relative shrink-0">
+                  <Icon className="w-4 h-4" />
+                </span>
+                {!collapsed && (
+                  <span className="truncate flex-1">{label}</span>
+                )}
+                {!collapsed && (
+                  <span className="ml-auto text-[8px] font-bold px-1 py-0.5 rounded bg-violet-900 text-violet-300 leading-none shrink-0">
+                    ADMIN
+                  </span>
+                )}
+              </Link>
+            )
+          })}
+        </>
+      )}
 
       {/* Footer */}
       <div className="px-2 py-2 border-t border-gray-800 shrink-0">
