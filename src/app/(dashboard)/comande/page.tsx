@@ -553,7 +553,7 @@ export default function ComandeProPage() {
         )
         // Marca le comande del tavolo come completate
         await updateDB('comande',
-          { completata_at: new Date().toISOString() },
+          { stato: 'completata', completata_at: new Date().toISOString() },
           { tavolo_id: tavoloSel.id }
         )
         toast.success(`${tavoloSel.nome} liberato`)
