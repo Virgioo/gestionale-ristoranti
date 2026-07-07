@@ -449,11 +449,15 @@ export default function ComandeProPage() {
               inviata:  true,
             }))
           )
-          setRighe(ripristinate)
-          if (!t.statoInfo?.cameriere_assegnato && comande[0].cameriere) {
-            setCameriere(comande[0].cameriere)
+          if (ripristinate.length > 0) {
+            setRighe(ripristinate)
+            if (!t.statoInfo?.cameriere_assegnato && comande[0].cameriere) {
+              setCameriere(comande[0].cameriere)
+            }
+            setNoteGen(comande[0].note ?? '')
+          } else {
+            setRighe([])
           }
-          setNoteGen(comande[0].note ?? '')
         } else {
           setRighe([])
         }
@@ -559,6 +563,22 @@ export default function ComandeProPage() {
         toast.success(`${tavoloSel.nome} liberato`)
       } catch { toast.error('Errore aggiornamento tavolo') }
     }
+    reset()
+    loadData()
+  }
+
+  async function liberaTavolo(t: TavoloExt) {
+    try {
+      await updateDB('stato_tavoli',
+        { stato: 'libero', ora_apertura: null, cameriere_assegnato: null, coperti_effettivi: null },
+        { tavolo_id: t.id }
+      )
+      updateDB('comande',
+        { stato: 'completata', completata_at: new Date().toISOString() },
+        { tavolo_id: t.id }
+      ).catch(() => {})
+      toast.success(`${t.nome} liberato`)
+    } catch { toast.error('Errore aggiornamento tavolo') }
     reset()
     loadData()
   }
@@ -820,6 +840,37 @@ export default function ComandeProPage() {
               ) : (
                 <MapCanvas tavoli={tavoliFiltrati} onSelect={selezionaTavolo} mapBg={th.mapBg} mapBorder={th.mapBorder} />
               )}
+
+              {/* ── Tavoli occupati: azioni rapide ── */}
+              {tavoli.some(t => t.statoInfo?.stato === 'occupato') && (
+                <div className={`rounded-2xl border overflow-hidden ${th.card}`}>
+                  <div className={`px-4 py-2.5 border-b ${th.sep} flex items-center gap-2`}>
+                    <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+                    <p className={`text-xs font-bold uppercase tracking-wider ${th.muted}`}>Tavoli occupati</p>
+                  </div>
+                  <div className={`divide-y ${th.divider}`}>
+                    {tavoli.filter(t => t.statoInfo?.stato === 'occupato').map(t => (
+                      <div key={t.id} className="flex items-center gap-3 px-4 py-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm">{t.nome}</p>
+                          <p className={`text-xs ${th.muted}`}>
+                            {t.statoInfo?.cameriere_assegnato ? `${t.statoInfo.cameriere_assegnato} · ` : ''}
+                            {t.statoInfo?.ora_apertura ? elapsed(t.statoInfo.ora_apertura) : '—'}
+                          </p>
+                        </div>
+                        <button onClick={() => selezionaTavolo(t)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition min-h-[36px] ${th.btn}`}>
+                          Apri
+                        </button>
+                        <button onClick={() => liberaTavolo(t)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition min-h-[36px]">
+                          Libera
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </main>
@@ -1013,6 +1064,12 @@ export default function ComandeProPage() {
                 className={`w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition disabled:opacity-40 ${th.btn}`}>
                 <ClipboardList className="w-4 h-4" />Vai al riepilogo
               </button>
+              {tavoloSel?.statoInfo?.stato === 'occupato' && (
+                <button onClick={() => tavoloSel && liberaTavolo(tavoloSel)}
+                  className="w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition text-red-500 hover:bg-red-50 border border-red-200 hover:border-red-400">
+                  <X className="w-3.5 h-3.5" />Libera tavolo
+                </button>
+              )}
             </div>
           </div>
         </div>
