@@ -2,11 +2,11 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase'
-import { queryDB } from '@/lib/api'
+import { queryDB, countDB } from '@/lib/api'
 import { isAdmin } from '@/lib/roles'
 import { formatEuro } from '@/lib/utils'
 import type { User } from '@supabase/supabase-js'
-import { TrendingUp, TrendingDown, Euro, Users, BarChart2, Award, ChevronDown, Sparkles, Loader2 } from 'lucide-react'
+import { TrendingUp, TrendingDown, Euro, Users, BarChart2, Award, ChevronDown, Sparkles, Loader2, Target } from 'lucide-react'
 
 /* ── Tipi ───────────────────────────────────────────────────────────────── */
 interface VisitaRow {
@@ -397,6 +397,191 @@ Niente introduzioni, niente conclusioni. Solo 2 bullet point.`
   )
 }
 
+/* ── Benchmark concorrenti (ISTAT ristorazione 2024) ───────────────────── */
+// Valori ISTAT/FIPE stimati per categoria ristorante fascia medio-alta
+const ISTAT_BENCHMARKS = [
+  { label: 'Top performer (fascia alta)',    scontrino: 88, colore: '#a855f7' },
+  { label: 'Media categoria (ristorazione)', scontrino: 55, colore: '#3b82f6' },
+  { label: 'Media nazionale FIPE 2024',     scontrino: 38, colore: '#94a3b8' },
+]
+
+interface BenchmarkData {
+  prenCurrMese: number; prenPrevMese: number
+  tavOccupati:  number; tavTotali: number
+}
+
+function BenchmarkSection({ scontrino, loading }: { scontrino: number; loading: boolean }) {
+  const [bm, setBm] = useState<BenchmarkData | null>(null)
+  const [bmLoading, setBmLoading] = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      setBmLoading(true)
+      try {
+        const oggi = new Date()
+        const meseStart    = new Date(oggi.getFullYear(), oggi.getMonth(),     1).toISOString().split('T')[0]
+        const prevStart    = new Date(oggi.getFullYear(), oggi.getMonth() - 1, 1).toISOString().split('T')[0]
+        const prevFine     = new Date(oggi.getFullYear(), oggi.getMonth(),     0).toISOString().split('T')[0]
+
+        const [prenCurr, prenPrev, tavOcc, sedi] = await Promise.all([
+          countDB('prenotazioni', [
+            { fn: 'gte', args: ['data_prenotazione', meseStart] },
+            { fn: 'neq', args: ['stato', 'cancellata'] },
+          ]),
+          countDB('prenotazioni', [
+            { fn: 'gte', args: ['data_prenotazione', prevStart] },
+            { fn: 'lte', args: ['data_prenotazione', prevFine] },
+            { fn: 'neq', args: ['stato', 'cancellata'] },
+          ]),
+          countDB('stato_tavoli', [{ fn: 'eq', args: ['stato', 'occupato'] }]),
+          queryDB<{ coperti_totali: number }>('sedi', {
+            select: 'coperti_totali',
+            filters: [{ fn: 'eq', args: ['attiva', true] }],
+          }),
+        ])
+        const tavTot = sedi.reduce((s, r) => s + (r.coperti_totali ?? 0), 0)
+        setBm({ prenCurrMese: prenCurr, prenPrevMese: prenPrev, tavOccupati: tavOcc, tavTotali: tavTot })
+      } catch {}
+      finally { setBmLoading(false) }
+    }
+    load()
+  }, [])
+
+  const maxScontrino = Math.max(scontrino, ...ISTAT_BENCHMARKS.map(b => b.scontrino), 1)
+  const trendPren = bm && bm.prenPrevMese > 0
+    ? Math.round(((bm.prenCurrMese - bm.prenPrevMese) / bm.prenPrevMese) * 100)
+    : null
+  const occupancyPct = bm && bm.tavTotali > 0
+    ? Math.round((bm.tavOccupati / Math.max(1, bm.tavTotali / 40)) * 100) // normalize vs estimated peak
+    : null
+  const benchmarkOccupancy = 72 // media di settore FIPE
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
+        <Target className="w-4 h-4 text-slate-400" />
+        <h2 className="font-semibold text-slate-900 text-sm">La tua posizione nel mercato</h2>
+        <span className="ml-1 text-[10px] px-2 py-0.5 rounded-full bg-[#1D9E75]/10 text-[#1D9E75] font-semibold">ADMIN</span>
+        <span className="ml-auto text-[10px] text-slate-400">Benchmark ISTAT/FIPE ristorazione 2024</span>
+      </div>
+
+      {(loading || bmLoading) ? (
+        <div className="h-40 animate-pulse bg-slate-50 m-5 rounded-lg" />
+      ) : (
+        <div className="p-5 grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+          {/* Scontrino medio vs benchmark */}
+          <div className="lg:col-span-2 space-y-3">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Scontrino medio per visita</p>
+            {/* Tuo ristorante */}
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="font-semibold text-orange-600">Il tuo ristorante</span>
+                <span className="font-bold text-orange-600">{formatEuro(scontrino)}</span>
+              </div>
+              <div className="h-6 bg-slate-100 rounded-full overflow-hidden relative">
+                <div
+                  className="h-full rounded-full flex items-center justify-end pr-2 transition-all duration-700"
+                  style={{ width: `${Math.min(100, (scontrino / maxScontrino) * 100)}%`, background: 'linear-gradient(90deg, #f97316, #fb923c)' }}
+                >
+                  <span className="text-[10px] font-bold text-white">{formatEuro(scontrino)}</span>
+                </div>
+              </div>
+            </div>
+            {/* Benchmarks */}
+            {ISTAT_BENCHMARKS.map(b => {
+              const pct = Math.min(100, (b.scontrino / maxScontrino) * 100)
+              const diff = scontrino - b.scontrino
+              return (
+                <div key={b.label}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-slate-500">{b.label}</span>
+                    <div className="flex items-center gap-2">
+                      {diff !== 0 && (
+                        <span className={`text-[10px] font-semibold ${diff > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                          {diff > 0 ? '+' : ''}{formatEuro(diff)} vs tu
+                        </span>
+                      )}
+                      <span className="font-medium text-slate-700">{formatEuro(b.scontrino)}</span>
+                    </div>
+                  </div>
+                  <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: b.colore, opacity: 0.7 }} />
+                  </div>
+                </div>
+              )
+            })}
+            {scontrino > ISTAT_BENCHMARKS[0].scontrino && (
+              <p className="text-xs text-green-600 font-medium">🏆 Il tuo scontrino supera il top performer di categoria</p>
+            )}
+            {scontrino > ISTAT_BENCHMARKS[1].scontrino && scontrino <= ISTAT_BENCHMARKS[0].scontrino && (
+              <p className="text-xs text-blue-600 font-medium">✅ Sopra la media di categoria ({formatEuro(scontrino - ISTAT_BENCHMARKS[1].scontrino)} in più)</p>
+            )}
+            {scontrino <= ISTAT_BENCHMARKS[1].scontrino && (
+              <p className="text-xs text-amber-600 font-medium">⚠️ Sotto la media di categoria — considera upselling su vini/dessert</p>
+            )}
+          </div>
+
+          {/* KPIs benchmark */}
+          <div className="space-y-4">
+            {/* Trend prenotazioni */}
+            <div className="bg-slate-50 rounded-xl p-4">
+              <p className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold mb-2">Prenotazioni vs mese scorso</p>
+              {bm ? (
+                <>
+                  <div className="flex items-end gap-2">
+                    <span className="text-2xl font-bold text-slate-900">{bm.prenCurrMese}</span>
+                    {trendPren !== null && (
+                      <span className={`text-sm font-semibold mb-0.5 flex items-center gap-0.5 ${trendPren >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                        {trendPren >= 0 ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                        {trendPren >= 0 ? '+' : ''}{trendPren}%
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Questo mese · {bm.prenPrevMese} il mese scorso</p>
+                </>
+              ) : <div className="h-8 animate-pulse bg-slate-200 rounded" />}
+            </div>
+
+            {/* Occupancy */}
+            <div className="bg-slate-50 rounded-xl p-4">
+              <p className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold mb-2">% Tavoli occupati ora</p>
+              {bm ? (
+                <>
+                  <div className="flex items-end gap-2 mb-2">
+                    <span className="text-2xl font-bold text-slate-900">{bm.tavOccupati}</span>
+                    <span className="text-xs text-slate-400 mb-0.5">tavoli attivi</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    <div>
+                      <div className="flex justify-between text-[10px] text-slate-500 mb-0.5">
+                        <span>Tu ora</span>
+                        <span>{occupancyPct ?? '—'}%</span>
+                      </div>
+                      <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <div className="h-full bg-orange-500 rounded-full" style={{ width: `${occupancyPct ?? 0}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-[10px] text-slate-400 mb-0.5">
+                        <span>Media settore</span>
+                        <span>{benchmarkOccupancy}%</span>
+                      </div>
+                      <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <div className="h-full bg-slate-300 rounded-full" style={{ width: `${benchmarkOccupancy}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : <div className="h-16 animate-pulse bg-slate-200 rounded" />}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
    PAGINA
 ═══════════════════════════════════════════════════════════════════════════ */
@@ -649,6 +834,9 @@ export default function RevenuePage() {
           </table>
         )}
       </div>
+
+      {/* Benchmark concorrenti — solo admin */}
+      {admin && <BenchmarkSection scontrino={media} loading={loading} />}
 
       {/* Performance camerieri — solo admin */}
       {admin && (

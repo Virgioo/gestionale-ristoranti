@@ -4,6 +4,36 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { queryDB } from '@/lib/api'
 
+interface PrenStat { nome_ospite: string; stato: string }
+
+function calcAffidabilita(
+  cliente: ClienteDB,
+  stats: Record<string, { tot: number; ns: number }>
+): number | null {
+  const cognome = cliente.cognome.toLowerCase()
+  const nome    = cliente.nome.toLowerCase()
+  for (const [key, v] of Object.entries(stats)) {
+    if (v.tot < 2) continue
+    if (key.includes(cognome) && key.includes(nome))
+      return Math.round(((v.tot - v.ns) / v.tot) * 100)
+  }
+  return null
+}
+
+function AffidabilitaBadge({ pct }: { pct: number }) {
+  const { bg, text } = pct >= 90
+    ? { bg: 'bg-green-100',  text: 'text-green-700' }
+    : pct >= 70
+      ? { bg: 'bg-yellow-100', text: 'text-yellow-700' }
+      : { bg: 'bg-red-100',    text: 'text-red-700' }
+  return (
+    <span title={`Affidabilità prenotazioni: ${pct}%`}
+      className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${bg} ${text}`}>
+      ●{pct}%
+    </span>
+  )
+}
+
 interface ClienteDB {
   id: string
   nome: string
@@ -48,6 +78,23 @@ export default function ClientiPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filtroTier, setFiltroTier] = useState<string>('tutti')
+  const [prenStats, setPrenStats] = useState<Record<string, { tot: number; ns: number }>>({})
+
+  useEffect(() => {
+    queryDB<PrenStat>('prenotazioni', {
+      select: 'nome_ospite,stato',
+      limit: 5000,
+    }).then(rows => {
+      const m: Record<string, { tot: number; ns: number }> = {}
+      for (const r of rows) {
+        const k = r.nome_ospite.toLowerCase()
+        if (!m[k]) m[k] = { tot: 0, ns: 0 }
+        m[k].tot++
+        if (r.stato === 'no_show') m[k].ns++
+      }
+      setPrenStats(m)
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     setLoading(true)
@@ -157,7 +204,13 @@ export default function ClientiPage() {
                     <p className="text-slate-400">{c.telefono ?? ''}{c.whatsapp_attivo ? ' 💬' : ''}</p>
                   </td>
                   <td className="px-4 py-2.5">
-                    <TierBadge tier={c.tier} />
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <TierBadge tier={c.tier} />
+                      {c.tier && (() => {
+                        const aff = calcAffidabilita(c, prenStats)
+                        return aff !== null ? <AffidabilitaBadge pct={aff} /> : null
+                      })()}
+                    </div>
                   </td>
                   <td className="px-4 py-2.5 text-slate-700 font-medium">{c.visite_totali}</td>
                   <td className="px-4 py-2.5 text-slate-700">{euro(c.spesa_totale)}</td>

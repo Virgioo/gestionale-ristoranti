@@ -19,6 +19,8 @@ const TIPO_ICONS: Record<string, string> = {
   anniversario: '🎉',
   vip_inattivo: '💤',
   qr_nuovo: '📲',
+  recensione: '⭐',
+  info: 'ℹ️',
 }
 
 export default function NotifichePage() {

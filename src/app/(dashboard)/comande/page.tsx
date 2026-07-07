@@ -38,7 +38,7 @@ function tempoPiatto(p: MenuItem): number {
   return p.tempo_preparazione_minuti ?? TEMPO_DEFAULT[p.categoria] ?? 10
 }
 interface RigaOrdine { localId: string; piatto: MenuItem; quantita: number; note: string; inviata: boolean }
-interface ClienteVip { id: string; nome: string; cognome: string; tier: string | null; allergie: string | null }
+interface ClienteVip { id: string; nome: string; cognome: string; tier: string | null; allergie: string | null; whatsapp_attivo?: boolean; telefono?: string | null }
 interface ComandaDB {
   id: string
   righe: Array<{ piatto_id?: string; piatto_nome: string; categoria: string; prezzo: number; quantita: number; note: string | null }>
@@ -370,7 +370,7 @@ export default function ComandeProPage() {
     searchTimer.current = setTimeout(async () => {
       try {
         const res = await queryDB<ClienteVip>('clienti', {
-          select: 'id,nome,cognome,tier,allergie',
+          select: 'id,nome,cognome,tier,allergie,whatsapp_attivo,telefono',
           filters: [{ fn: 'ilike', args: ['nome', `%${q}%`] }],
           limit: 6,
         })
@@ -579,12 +579,25 @@ export default function ComandeProPage() {
           { stato: 'libero', ora_apertura: null, cameriere_assegnato: null, coperti_effettivi: null },
           { tavolo_id: tavoloSel.id }
         )
-        // Marca le comande del tavolo come completate
         await updateDB('comande',
           { stato: 'completata', completata_at: new Date().toISOString() },
           { tavolo_id: tavoloSel.id }
         )
         toast.success(`${tavoloSel.nome} liberato`)
+
+        // Richiesta recensione per VIP con WhatsApp
+        if (clienteVip?.whatsapp_attivo) {
+          const nome = clienteVip.nome
+          const tel  = clienteVip.telefono ?? ''
+          const testo = `Caro ${nome}, grazie per questa sera alla Scogliera! Se hai un momento, una recensione su Google ci farebbe molto piacere 🙏\n[Link Google Maps]\nGrazie di cuore! 🌊`
+          insertDB('notifiche', {
+            tipo:      'recensione',
+            titolo:    `Richiesta recensione — ${nome} ${clienteVip.cognome}`,
+            messaggio: `💬 Invia su WhatsApp${tel ? ` a ${tel}` : ''}:\n\n"${testo}"`,
+            letta:     false,
+          }).catch(() => {})
+          toast('💬 Notifica recensione creata per ' + nome, { icon: '⭐' })
+        }
       } catch { toast.error('Errore aggiornamento tavolo') }
     }
     reset()

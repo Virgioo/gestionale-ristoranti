@@ -4,6 +4,22 @@ import { useEffect, useState } from 'react'
 import { queryDB, updateDB } from '@/lib/api'
 import toast from 'react-hot-toast'
 
+interface PrenStatRow { nome_ospite: string; stato: string }
+
+function AffidabilitaBadge({ pct }: { pct: number }) {
+  const { bg, text } = pct >= 90
+    ? { bg: 'bg-green-100',  text: 'text-green-700' }
+    : pct >= 70
+      ? { bg: 'bg-yellow-100', text: 'text-yellow-700' }
+      : { bg: 'bg-red-100',    text: 'text-red-700' }
+  return (
+    <span title={`Affidabilità: ${pct}%`}
+      className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${bg} ${text}`}>
+      ●{pct}%
+    </span>
+  )
+}
+
 interface PrenDB {
   id: string
   nome_ospite: string
@@ -37,6 +53,28 @@ export default function PrenotazioniPage() {
   const [loading, setLoading] = useState(true)
   const [dataFiltro, setDataFiltro] = useState(new Date().toISOString().split('T')[0])
   const [statoFiltro, setStatoFiltro] = useState<string>('tutte')
+  const [prenStats, setPrenStats] = useState<Record<string, { tot: number; ns: number }>>({})
+
+  useEffect(() => {
+    queryDB<PrenStatRow>('prenotazioni', { select: 'nome_ospite,stato', limit: 5000 })
+      .then(rows => {
+        const m: Record<string, { tot: number; ns: number }> = {}
+        for (const r of rows) {
+          const k = r.nome_ospite.toLowerCase()
+          if (!m[k]) m[k] = { tot: 0, ns: 0 }
+          m[k].tot++
+          if (r.stato === 'no_show') m[k].ns++
+        }
+        setPrenStats(m)
+      }).catch(() => {})
+  }, [])
+
+  function getAffidabilita(nome: string): number | null {
+    const k = nome.toLowerCase()
+    const v = prenStats[k]
+    if (!v || v.tot < 2) return null
+    return Math.round(((v.tot - v.ns) / v.tot) * 100)
+  }
 
   useEffect(() => { load() }, [dataFiltro, statoFiltro])
 
@@ -147,7 +185,10 @@ export default function PrenotazioniPage() {
                     {p.ora_arrivo?.slice(0, 5)}
                   </td>
                   <td className="px-4 py-2.5">
-                    <p className="font-medium text-slate-800">{p.nome_ospite}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-medium text-slate-800">{p.nome_ospite}</p>
+                      {(() => { const a = getAffidabilita(p.nome_ospite); return a !== null ? <AffidabilitaBadge pct={a} /> : null })()}
+                    </div>
                     {p.telefono_ospite && (
                       <p className="text-[10px] text-slate-400">{p.telefono_ospite}</p>
                     )}
