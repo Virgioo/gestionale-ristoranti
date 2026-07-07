@@ -286,6 +286,9 @@ export default function ComandeProPage() {
   const [noteGen,       setNoteGen]     = useState('')
   const [inviando,      setInviando]    = useState(false)
   const [pendingCount,  setPendingCount]= useState(0)
+  const [printMode,     setPrintMode]   = useState<'preconto' | 'cucina' | null>(null)
+  const [lastSentRighe, setLastSentRighe] = useState<RigaOrdine[]>([])
+  const [lastSentAt,    setLastSentAt]  = useState<string | null>(null)
 
   const th          = useMemo(() => mkTheme(dark), [dark])
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -299,6 +302,14 @@ export default function ComandeProPage() {
       if (n > 0) { toast.success(`${n} comand${n === 1 ? 'a' : 'e'} sincronizzat${n === 1 ? 'a' : 'e'}`); refreshPending() }
     })
   }, [isOnline])
+
+  useEffect(() => {
+    if (!printMode) return
+    window.print()
+    const handler = () => setPrintMode(null)
+    window.addEventListener('afterprint', handler, { once: true })
+    return () => window.removeEventListener('afterprint', handler)
+  }, [printMode])
 
   async function loadData() {
     setLoading(true)
@@ -541,10 +552,14 @@ export default function ComandeProPage() {
       }
     }
 
+    const snapshot = [...righeNuove]
     setRighe(prev => prev.map(r => r.inviata ? r : { ...r, inviata: true }))
+    setLastSentRighe(snapshot)
+    setLastSentAt(new Date().toISOString())
     await refreshPending()
     toast.success(`${pezziNuovi} pezzi mandati in cucina${!isOnline ? ' (offline)' : ''}`)
     setInviando(false)
+    setPrintMode('cucina')
   }, [tavoloSel, righeNuove, cameriere, noteGen, totaleNuove, pezziNuovi, isOnline])
 
   // ── Chiudi tavolo ─────────────────────────────────────────────────────────────
@@ -600,59 +615,114 @@ export default function ComandeProPage() {
   return (
     <div className={`min-h-screen flex flex-col ${th.page}`}>
 
-      {/* ── Print styles: solo .print-receipt è visibile in stampa ── */}
+      {/* ── Print styles ── */}
       <style>{`
         @media print {
           body > * { display: none !important; }
-          .print-receipt { display: block !important; position: fixed; inset: 0; z-index: 99999; background: #fff; padding: 16px 24px; }
-          @page { margin: 0.8cm; size: 80mm auto; }
+          .print-zone { display: block !important; position: fixed; inset: 0; z-index: 99999; background: #fff; overflow: visible; }
+          @page { margin: 4mm; size: 80mm auto; }
         }
-        .print-receipt { display: none; }
+        .print-zone { display: none; }
       `}</style>
 
-      {/* ── Pre-conto professionale (solo in stampa) ── */}
-      <div className="print-receipt" style={{ fontFamily: '"Courier New", monospace', fontSize: 12, color: '#000', maxWidth: 320, margin: '0 auto' }}>
-        <div style={{ textAlign: 'center', marginBottom: 12 }}>
-          <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: 3 }}>SCOGLIERA</div>
-          <div style={{ fontSize: 10, color: '#555', marginBottom: 6 }}>Ristorante di Mare</div>
-          <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }} />
-          <div style={{ fontSize: 10 }}>
-            {new Date().toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-          </div>
-          <div style={{ fontSize: 14, fontWeight: 700, marginTop: 4 }}>
-            {tavoloSel?.nome ?? '—'}
-            {clienteVip ? ` — ${clienteVip.nome} ${clienteVip.cognome}` : ''}
-          </div>
-          {cameriere && <div style={{ fontSize: 10, color: '#444', marginTop: 2 }}>Cameriere: {cameriere}</div>}
-        </div>
+      {/* ── Print zone (visible only when printing) ── */}
+      <div className="print-zone">
 
-        <div style={{ borderTop: '1px solid #000', paddingTop: 8, marginBottom: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, fontWeight: 700, borderBottom: '1px dashed #bbb', paddingBottom: 4, marginBottom: 6 }}>
-            <span>DESCRIZIONE</span><span>IMPORTO</span>
-          </div>
-          {righe.map(r => (
-            <div key={r.localId} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11 }}>
-              <span style={{ flex: 1, paddingRight: 8 }}>
-                {r.quantita}× {r.piatto.nome}
-                {r.note ? <span style={{ fontSize: 9, color: '#666' }}><br />  ↳ {r.note}</span> : null}
-              </span>
-              <span style={{ flexShrink: 0, fontWeight: 600 }}>{formatEuro(r.piatto.prezzo * r.quantita)}</span>
+        {/* Pre-conto cliente */}
+        {printMode === 'preconto' && (
+          <div style={{ fontFamily: '"Courier New", monospace', fontSize: 12, color: '#000', maxWidth: 310, margin: '0 auto', padding: '12px 0' }}>
+            <div style={{ textAlign: 'center', marginBottom: 12 }}>
+              <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: 3 }}>SCOGLIERA</div>
+              <div style={{ fontSize: 10, color: '#555', marginBottom: 6 }}>Ristorante di Mare</div>
+              <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }} />
+              <div style={{ fontSize: 10 }}>
+                {new Date().toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 700, marginTop: 4 }}>
+                {tavoloSel?.nome ?? '—'}
+                {clienteVip ? ` — ${clienteVip.nome} ${clienteVip.cognome}` : ''}
+              </div>
+              {cameriere && <div style={{ fontSize: 10, color: '#444', marginTop: 2 }}>Cameriere: {cameriere}</div>}
             </div>
-          ))}
-        </div>
-
-        <div style={{ borderTop: '2px solid #000', paddingTop: 10, marginBottom: 14 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 17, fontWeight: 900 }}>
-            <span>TOTALE</span>
-            <span>{formatEuro(totaleTutto)}</span>
+            <div style={{ borderTop: '1px solid #000', paddingTop: 8, marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, fontWeight: 700, borderBottom: '1px dashed #bbb', paddingBottom: 4, marginBottom: 6 }}>
+                <span>DESCRIZIONE</span><span>IMPORTO</span>
+              </div>
+              {righe.map(r => (
+                <div key={r.localId} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11 }}>
+                  <span style={{ flex: 1, paddingRight: 8 }}>
+                    {r.quantita}× {r.piatto.nome}
+                    {r.note ? <span style={{ fontSize: 9, color: '#666' }}><br />  ↳ {r.note}</span> : null}
+                  </span>
+                  <span style={{ flexShrink: 0, fontWeight: 600 }}>{formatEuro(r.piatto.prezzo * r.quantita)}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ borderTop: '2px solid #000', paddingTop: 10, marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 17, fontWeight: 900 }}>
+                <span>TOTALE</span><span>{formatEuro(totaleTutto)}</span>
+              </div>
+              {noteGen && <div style={{ fontSize: 10, color: '#444', marginTop: 6 }}>Note: {noteGen}</div>}
+            </div>
+            <div style={{ textAlign: 'center', borderTop: '1px dashed #000', paddingTop: 10, fontSize: 10, color: '#666' }}>
+              <div style={{ fontWeight: 600 }}>Grazie per averci scelto!</div>
+              <div style={{ marginTop: 2 }}>Vi aspettiamo presto</div>
+            </div>
           </div>
-          {noteGen && <div style={{ fontSize: 10, color: '#444', marginTop: 6 }}>Note: {noteGen}</div>}
-        </div>
+        )}
 
-        <div style={{ textAlign: 'center', borderTop: '1px dashed #000', paddingTop: 10, fontSize: 10, color: '#666' }}>
-          <div style={{ fontWeight: 600 }}>Grazie per averci scelto!</div>
-          <div style={{ marginTop: 2 }}>Vi aspettiamo presto</div>
-        </div>
+        {/* Comanda cucina */}
+        {printMode === 'cucina' && (
+          <div style={{ fontFamily: '"Courier New", monospace', color: '#000', padding: '8px 10px' }}>
+            <div style={{ textAlign: 'center', marginBottom: 10 }}>
+              <div style={{ fontSize: 9, letterSpacing: 3, color: '#555' }}>COMANDA CUCINA</div>
+              <div style={{ fontSize: 42, fontWeight: 900, lineHeight: 1.1, marginTop: 2 }}>
+                {tavoloSel?.nome ?? '—'}
+              </div>
+              <div style={{ fontSize: 10, marginTop: 4 }}>
+                {lastSentAt
+                  ? new Date(lastSentAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                  : ''}
+              </div>
+              {cameriere && (
+                <div style={{ fontSize: 10, color: '#444', marginTop: 1 }}>Cam: {cameriere}</div>
+              )}
+            </div>
+
+            {allergieParsed.length > 0 && (
+              <div style={{ border: '2px solid #dc2626', borderRadius: 4, padding: '4px 8px', marginBottom: 10, textAlign: 'center' }}>
+                <div style={{ fontSize: 11, fontWeight: 900, color: '#dc2626' }}>
+                  ⚠️ ALLERGIE: {allergieParsed.map(a => a.toUpperCase()).join(' · ')}
+                </div>
+              </div>
+            )}
+
+            <div style={{ borderTop: '2px solid #000', paddingTop: 8 }}>
+              {lastSentRighe.map((r, i) => (
+                <div key={i} style={{ marginBottom: 10 }}>
+                  <div style={{ display: 'flex', gap: 6, fontSize: 16, fontWeight: 900, alignItems: 'baseline' }}>
+                    <span style={{ flexShrink: 0, minWidth: 28, textAlign: 'right', fontSize: 18 }}>{r.quantita}×</span>
+                    <span style={{ lineHeight: 1.2 }}>{r.piatto.nome}</span>
+                  </div>
+                  {r.note && (
+                    <div style={{ fontSize: 12, fontWeight: 900, marginLeft: 34, marginTop: 2, letterSpacing: 0.3 }}>
+                      ↳ {r.note}
+                    </div>
+                  )}
+                  {r.piatto.allergeni && r.piatto.allergeni.length > 0 && (
+                    <div style={{ fontSize: 9, color: '#dc2626', marginLeft: 34, marginTop: 1 }}>
+                      ⚠️ {r.piatto.allergeni.join(', ')}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ borderTop: '1px dashed #000', marginTop: 4, paddingTop: 6, textAlign: 'center', fontSize: 10, color: '#666' }}>
+              {lastSentRighe.reduce((s, r) => s + r.quantita, 0)} pezzi totali
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Banner offline ── */}
@@ -1181,7 +1251,7 @@ export default function ComandeProPage() {
               )}
 
               <div className="grid grid-cols-3 gap-3">
-                <button onClick={() => window.print()}
+                <button onClick={() => setPrintMode('preconto')}
                   className={`py-4 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 active:scale-95 transition border ${th.card} ${th.muted} hover:border-slate-400`}>
                   <Printer className="w-5 h-5" />Pre-conto
                 </button>
@@ -1194,6 +1264,13 @@ export default function ComandeProPage() {
                   <CheckCircle2 className="w-5 h-5" />Chiudi
                 </button>
               </div>
+
+              {lastSentRighe.length > 0 && (
+                <button onClick={() => setPrintMode('cucina')}
+                  className={`w-full py-3.5 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 active:scale-95 transition border ${th.card} ${th.muted} hover:border-emerald-400 hover:text-emerald-600`}>
+                  <Printer className="w-5 h-5" />Ristampa comanda cucina
+                </button>
+              )}
             </div>
 
             <button onClick={reset} className={`w-full py-3 text-sm text-center transition ${th.muted} hover:text-emerald-500`}>
