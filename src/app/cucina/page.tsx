@@ -9,6 +9,7 @@ interface RigaDB {
   categoria:   string
   quantita:    number
   note:        string | null
+  tempo_prep?: number
 }
 interface ComandaDB {
   id:            string
@@ -30,6 +31,10 @@ const CAT_CONFIG: Record<string, { label: string; color: string }> = {
 }
 const CAT_ORDER   = ['antipasti', 'primi', 'secondi', 'dolci']
 const TWO_HOURS   = 2 * 60 * 60 * 1000
+
+const TEMPO_CAT_DEFAULT: Record<string, number> = {
+  antipasti: 10, primi: 15, secondi: 20, dolci: 6, bevande: 2, vini: 2, menu_cani: 5,
+}
 
 type ViewMode = 'compact' | 'detail'
 
@@ -88,6 +93,37 @@ function timerColor(iso: string) {
   if (m >= 3)  return '#9ca3af'
   return '#22c55e'
 }
+function rigaTempo(r: RigaDB): number {
+  return r.tempo_prep ?? TEMPO_CAT_DEFAULT[r.categoria] ?? 10
+}
+function tempoStimato(comanda: ComandaDB): number {
+  if (!comanda.righe.length) return 0
+  return Math.max(...comanda.righe.map(rigaTempo))
+}
+
+// Returns dishKey of the next dish to activate after a category completes, or null
+function findNextDishToActivate(comanda: ComandaDB, doneDishes: Set<string>): string | null {
+  // For each cat in order, if all done → find first undone in next cat
+  const cats = [...new Set(comanda.righe.map(r => r.categoria))]
+  const orderedCats = [...CAT_ORDER.filter(c => cats.includes(c)), ...cats.filter(c => !CAT_ORDER.includes(c))]
+
+  for (let ci = 0; ci < orderedCats.length - 1; ci++) {
+    const cat = orderedCats[ci]
+    const catDishes = comanda.righe.map((r, i) => ({ r, i })).filter(({ r }) => r.categoria === cat)
+    if (catDishes.length === 0) continue
+    const allDone = catDishes.every(({ i }) => doneDishes.has(`${comanda.id}:${i}`))
+    if (!allDone) continue
+
+    // This category is fully done — find first undone dish in next categories
+    for (let nci = ci + 1; nci < orderedCats.length; nci++) {
+      const nextCat = orderedCats[nci]
+      const nextUndone = comanda.righe.map((r, i) => ({ r, i }))
+        .filter(({ r, i }) => r.categoria === nextCat && !doneDishes.has(`${comanda.id}:${i}`))
+      if (nextUndone.length > 0) return `${comanda.id}:${nextUndone[0].i}`
+    }
+  }
+  return null
+}
 
 // ─── Clock ────────────────────────────────────────────────────────────────────
 function Clock() {
@@ -106,6 +142,36 @@ function LiveTimer({ iso, size = 22 }: { iso: string; size?: number }) {
   return <span style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: size, color: timerColor(iso), lineHeight: 1 }}>{fmtElapsed(iso)}</span>
 }
 
+// ─── Countdown timer for next dish ───────────────────────────────────────────
+function LiveCountdown({ activatedAt, prepMin }: { activatedAt: number; prepMin: number }) {
+  const [, tick] = useState(0)
+  useEffect(() => { const id = setInterval(() => tick(n => n + 1), 1_000); return () => clearInterval(id) }, [])
+  const remainMs = Math.max(0, activatedAt + prepMin * 60_000 - Date.now())
+  if (remainMs === 0) return <span style={{ color: '#4ade80', fontSize: 9, fontWeight: 900, letterSpacing: 1 }}>INIZIA ORA!</span>
+  const m = Math.floor(remainMs / 60_000)
+  const s = Math.floor((remainMs % 60_000) / 1_000)
+  return <span style={{ color: '#f59e0b', fontSize: 9, fontWeight: 900 }}>↻ {m}:{String(s).padStart(2, '0')}</span>
+}
+
+// ─── Time progress bar (self-updating) ───────────────────────────────────────
+function TimeProgressBar({ comanda, style }: { comanda: ComandaDB; style?: React.CSSProperties }) {
+  const [, tick] = useState(0)
+  useEffect(() => { const id = setInterval(() => tick(n => n + 1), 5_000); return () => clearInterval(id) }, [])
+  const ts = comanda.inviata_at ?? comanda.created_at
+  const est = tempoStimato(comanda) * 60_000
+  if (est <= 0) return null
+  const pct  = Math.min(1, (Date.now() - new Date(ts).getTime()) / est)
+  const color = pct >= 1 ? '#ef4444' : pct >= 0.8 ? '#f59e0b' : '#22c55e'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, ...style }}>
+      <div style={{ flex: 1, height: 3, background: '#111', borderRadius: 2, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${pct * 100}%`, background: color, borderRadius: 2, transition: 'width 1s' }} />
+      </div>
+      <span style={{ color: '#374151', fontSize: 9, fontWeight: 700, flexShrink: 0 }}>⏱{tempoStimato(comanda)}'</span>
+    </div>
+  )
+}
+
 // ─── Shared: dish progress ────────────────────────────────────────────────────
 function dishStats(comanda: ComandaDB, dishDone: Set<string>) {
   const total = comanda.righe.length
@@ -113,7 +179,7 @@ function dishStats(comanda: ComandaDB, dishDone: Set<string>) {
   return { total, done, pct: total > 0 ? done / total : 0 }
 }
 
-// ─── COMPACT CARD (120px) ─────────────────────────────────────────────────────
+// ─── COMPACT CARD (132px) ─────────────────────────────────────────────────────
 function CompactCard({ comanda, dishDone, isDone, blink, onExpand, onAllDone }: {
   comanda:   ComandaDB
   dishDone:  Set<string>
@@ -132,7 +198,7 @@ function CompactCard({ comanda, dishDone, isDone, blink, onExpand, onAllDone }: 
     <div
       onClick={() => !isDone && onExpand(comanda.id)}
       style={{
-        height: 120, background: isDone ? '#0a1f12' : '#141414',
+        height: 132, background: isDone ? '#0a1f12' : '#141414',
         borderLeft: `3px solid ${borderColor}`, borderRadius: 8,
         cursor: isDone ? 'default' : 'pointer',
         display: 'flex', flexDirection: 'column',
@@ -150,30 +216,35 @@ function CompactCard({ comanda, dishDone, isDone, blink, onExpand, onAllDone }: 
       ) : (
         <>
           {/* Row 1: tavolo + timer */}
-          <div style={{ padding: '9px 12px 3px', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <div style={{ padding: '8px 12px 2px', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <span style={{ color: '#fff', fontWeight: 900, fontSize: 18, letterSpacing: 1, lineHeight: 1 }}>{tavolo}</span>
-            <LiveTimer iso={ts} size={18} />
+            <LiveTimer iso={ts} size={17} />
           </div>
 
-          {/* Row 2: cameriere + urgency label */}
-          <div style={{ padding: '0 12px 5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {/* Row 2: cameriere + urgency + estimated time */}
+          <div style={{ padding: '0 12px 4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ color: '#374151', fontSize: 11, fontWeight: 600 }}>{comanda.cameriere ?? ''}</span>
-            {urg.label && <span style={{ color: urg.color, fontSize: 9, fontWeight: 900, letterSpacing: 2 }}>{urg.label}</span>}
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {urg.label && <span style={{ color: urg.color, fontSize: 9, fontWeight: 900, letterSpacing: 2 }}>{urg.label}</span>}
+            </span>
           </div>
 
-          {/* Row 3: progress bar + count */}
-          <div style={{ padding: '0 12px 6px', display: 'flex', alignItems: 'center', gap: 7 }}>
+          {/* Row 3: dish progress bar */}
+          <div style={{ padding: '0 12px 4px', display: 'flex', alignItems: 'center', gap: 7 }}>
             <div style={{ flex: 1, height: 4, background: '#1f1f1f', borderRadius: 2, overflow: 'hidden' }}>
               <div style={{ height: '100%', width: `${pct * 100}%`, background: pct === 1 ? '#22c55e' : '#3b82f6', borderRadius: 2, transition: 'width 0.3s' }} />
             </div>
             <span style={{ color: '#374151', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>{done}/{total}</span>
           </div>
 
-          {/* Row 4: TUTTO PRONTO button */}
+          {/* Row 4: time progress bar */}
+          <TimeProgressBar comanda={comanda} style={{ padding: '0 12px 5px' }} />
+
+          {/* Row 5: TUTTO PRONTO button */}
           <button
             onClick={e => { e.stopPropagation(); onAllDone(comanda.id) }}
             style={{
-              margin: '0 8px 8px', height: 30, flexShrink: 0,
+              margin: '0 8px 8px', height: 28, flexShrink: 0,
               background: '#16a34a', color: '#fff',
               border: 'none', borderRadius: 5,
               fontWeight: 900, fontSize: 11, letterSpacing: 2, cursor: 'pointer',
@@ -191,19 +262,21 @@ function CompactCard({ comanda, dishDone, isDone, blink, onExpand, onAllDone }: 
 }
 
 // ─── DETAIL CARD (inside modal or grid) ──────────────────────────────────────
-function DetailCard({ comanda, dishDone, onDishDone, isDone, blink, onAllDone }: {
-  comanda:   ComandaDB
-  dishDone:  Set<string>
-  onDishDone:(key: string) => void
-  isDone:    boolean
-  blink:     boolean
-  onAllDone: (id: string) => void
+function DetailCard({ comanda, dishDone, dishActivated, onDishDone, isDone, blink, onAllDone }: {
+  comanda:       ComandaDB
+  dishDone:      Set<string>
+  dishActivated: Map<string, number>
+  onDishDone:   (key: string) => void
+  isDone:        boolean
+  blink:         boolean
+  onAllDone:     (id: string) => void
 }) {
   const ts  = comanda.inviata_at ?? comanda.created_at
   const urg = urgency(ts)
   const { total, done, pct } = dishStats(comanda, dishDone)
   const borderColor = isDone ? '#22c55e' : urg.blink ? (blink ? '#ef4444' : '#5a0a0a') : urg.color
   const tavolo = (comanda.tavolo_nome ?? comanda.numero_tavolo ?? 'T?').toUpperCase()
+  const est = tempoStimato(comanda)
 
   const grouped: Record<string, { riga: RigaDB; idx: number }[]> = {}
   comanda.righe.forEach((r, idx) => {
@@ -238,12 +311,20 @@ function DetailCard({ comanda, dishDone, onDishDone, isDone, blink, onAllDone }:
               </div>
               <div style={{ textAlign: 'right' }}>
                 <LiveTimer iso={ts} size={22} />
-                {urg.label && <div style={{ color: urg.color, fontSize: 10, fontWeight: 900, letterSpacing: 2, marginTop: 4 }}>{urg.label}</div>}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+                  {est > 0 && <span style={{ color: '#374151', fontSize: 10, fontWeight: 600 }}>⏱ {est} min</span>}
+                  {urg.label && <span style={{ color: urg.color, fontSize: 10, fontWeight: 900, letterSpacing: 2 }}>{urg.label}</span>}
+                </div>
               </div>
             </div>
+
+            {/* Dish completion bar */}
             <div style={{ height: 3, background: '#1f1f1f', borderRadius: 2, marginTop: 10, overflow: 'hidden' }}>
               <div style={{ height: '100%', width: `${pct * 100}%`, background: pct === 1 ? '#22c55e' : '#3b82f6', borderRadius: 2, transition: 'width 0.3s' }} />
             </div>
+
+            {/* Time progress bar */}
+            {est > 0 && <TimeProgressBar comanda={comanda} style={{ marginTop: 5 }} />}
           </div>
 
           {/* Dishes */}
@@ -258,8 +339,10 @@ function DetailCard({ comanda, dishDone, onDishDone, isDone, blink, onAllDone }:
                     <span style={{ color: cfg.color, fontSize: 10, fontWeight: 900, letterSpacing: 3 }}>{cfg.label}</span>
                   </div>
                   {dishes.map(({ riga, idx }) => {
-                    const dishKey = `${comanda.id}:${idx}`
-                    const d       = dishDone.has(dishKey)
+                    const dishKey   = `${comanda.id}:${idx}`
+                    const d         = dishDone.has(dishKey)
+                    const activatedAt = dishActivated.get(dishKey)
+                    const prepMin   = rigaTempo(riga)
                     return (
                       <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 16px', opacity: d ? 0.28 : 1, transition: 'opacity 0.25s' }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
@@ -272,6 +355,14 @@ function DetailCard({ comanda, dishDone, onDishDone, isDone, blink, onAllDone }:
                             <span style={{ color: d ? '#374151' : '#e5e7eb', fontWeight: 700, fontSize: 15, lineHeight: 1.35, textDecoration: d ? 'line-through' : 'none' }}>
                               {riga.piatto_nome}
                             </span>
+                            {/* Prep time badge */}
+                            <span style={{ color: '#374151', fontSize: 9, fontWeight: 700, background: '#1a1a1a', borderRadius: 3, padding: '1px 5px', flexShrink: 0 }}>
+                              {prepMin}'
+                            </span>
+                            {/* Countdown for activated dish */}
+                            {!d && activatedAt && (
+                              <LiveCountdown activatedAt={activatedAt} prepMin={prepMin} />
+                            )}
                           </div>
                           {riga.note && !d && (
                             <div style={{ color: '#4b5563', fontSize: 11, fontStyle: 'italic', marginTop: 2, paddingLeft: riga.quantita > 1 ? 26 : 0 }}>
@@ -328,16 +419,16 @@ function DetailCard({ comanda, dishDone, onDishDone, isDone, blink, onAllDone }:
 }
 
 // ─── DETAIL MODAL (overlay) ───────────────────────────────────────────────────
-function DetailModal({ comanda, dishDone, onDishDone, isDone, blink, onClose, onAllDone }: {
-  comanda:   ComandaDB
-  dishDone:  Set<string>
-  onDishDone:(key: string) => void
-  isDone:    boolean
-  blink:     boolean
-  onClose:   () => void
-  onAllDone: (id: string) => void
+function DetailModal({ comanda, dishDone, dishActivated, onDishDone, isDone, blink, onClose, onAllDone }: {
+  comanda:       ComandaDB
+  dishDone:      Set<string>
+  dishActivated: Map<string, number>
+  onDishDone:   (key: string) => void
+  isDone:        boolean
+  blink:         boolean
+  onClose:       () => void
+  onAllDone:     (id: string) => void
 }) {
-  // Close on Escape
   useEffect(() => {
     const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', fn)
@@ -362,7 +453,6 @@ function DetailModal({ comanda, dishDone, onDishDone, isDone, blink, onClose, on
           borderRadius: 12, position: 'relative',
         }}
       >
-        {/* Close button */}
         <button
           onClick={onClose}
           style={{
@@ -375,8 +465,8 @@ function DetailModal({ comanda, dishDone, onDishDone, isDone, blink, onClose, on
         >✕</button>
 
         <DetailCard
-          comanda={comanda} dishDone={dishDone} onDishDone={onDishDone}
-          isDone={isDone} blink={blink}
+          comanda={comanda} dishDone={dishDone} dishActivated={dishActivated}
+          onDishDone={onDishDone} isDone={isDone} blink={blink}
           onAllDone={id => { onAllDone(id); onClose() }}
         />
       </div>
@@ -386,15 +476,16 @@ function DetailModal({ comanda, dishDone, onDishDone, isDone, blink, onClose, on
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function CucinaPage() {
-  const [comande,      setComande]      = useState<ComandaDB[]>([])
-  const [loading,      setLoading]      = useState(true)
-  const [dishDone,     setDishDone]     = useState<Set<string>>(new Set())
-  const [cardsDone,    setCardsDone]    = useState<Set<string>>(new Set())
-  const [cardsRemoved, setCardsRemoved] = useState<Set<string>>(new Set())
-  const [countdown,    setCountdown]    = useState(10)
-  const [blink,        setBlink]        = useState(true)
-  const [viewMode,     setViewMode]     = useState<ViewMode>('compact')
-  const [expandedId,   setExpandedId]   = useState<string | null>(null)
+  const [comande,       setComande]       = useState<ComandaDB[]>([])
+  const [loading,       setLoading]       = useState(true)
+  const [dishDone,      setDishDone]      = useState<Set<string>>(new Set())
+  const [dishActivated, setDishActivated] = useState<Map<string, number>>(new Map())
+  const [cardsDone,     setCardsDone]     = useState<Set<string>>(new Set())
+  const [cardsRemoved,  setCardsRemoved]  = useState<Set<string>>(new Set())
+  const [countdown,     setCountdown]     = useState(10)
+  const [blink,         setBlink]         = useState(true)
+  const [viewMode,      setViewMode]      = useState<ViewMode>('compact')
+  const [expandedId,    setExpandedId]    = useState<string | null>(null)
 
   const knownIds  = useRef<Set<string>>(new Set())
   const firstLoad = useRef(true)
@@ -445,6 +536,9 @@ export default function CucinaPage() {
     const allDishKeys = comanda.righe.map((_, i) => `${comandaId}:${i}`)
     setDishDone(prev => new Set([...prev, ...allDishKeys]))
     setCardsDone(prev => new Set([...prev, comandaId]))
+    setDishActivated(prev => {
+      const n = new Map(prev); allDishKeys.forEach(k => n.delete(k)); return n
+    })
     playDoubleBeep()
 
     updateDB('comande',
@@ -466,10 +560,17 @@ export default function CucinaPage() {
 
     const comanda = comande.find(c => c.id === comandaId)
     if (!comanda) return
+
+    // Find next dish to activate countdown
+    const nextKey = findNextDishToActivate(comanda, newDishDone)
+    if (nextKey && !dishActivated.has(nextKey)) {
+      setDishActivated(prev => new Map([...prev, [nextKey, Date.now()]]))
+    }
+
     const allDishKeys = comanda.righe.map((_, i) => `${comandaId}:${i}`)
     if (!allDishKeys.every(k => newDishDone.has(k))) return
 
-    // all dishes done
+    // All dishes done
     setCardsDone(prev => new Set([...prev, comandaId]))
     playDoubleBeep()
     updateDB('comande', { stato: 'completata', completata_at: new Date().toISOString() }, { id: comandaId }).catch(() => {})
@@ -477,6 +578,7 @@ export default function CucinaPage() {
       setCardsDone(prev    => { const n = new Set(prev); n.delete(comandaId); return n })
       setCardsRemoved(prev => new Set([...prev, comandaId]))
       setDishDone(prev => { const n = new Set(prev); allDishKeys.forEach(k => n.delete(k)); return n })
+      setDishActivated(prev => { const n = new Map(prev); allDishKeys.forEach(k => n.delete(k)); return n })
       setExpandedId(id => id === comandaId ? null : id)
     }, 8_000)
   }
@@ -507,7 +609,6 @@ export default function CucinaPage() {
         <Clock />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 160, justifyContent: 'flex-end' }}>
-          {/* Counter */}
           <div>
             <span style={{ color: totaleAttesa > 0 ? '#ef4444' : '#22c55e', fontWeight: 900, fontSize: 26, lineHeight: 1 }}>
               {totaleAttesa}
@@ -574,7 +675,8 @@ export default function CucinaPage() {
               />
             ) : (
               <DetailCard
-                key={c.id} comanda={c} dishDone={dishDone} onDishDone={handleDishDone}
+                key={c.id} comanda={c} dishDone={dishDone} dishActivated={dishActivated}
+                onDishDone={handleDishDone}
                 isDone={cardsDone.has(c.id)} blink={blink} onAllDone={markAllDone}
               />
             ))}
@@ -585,7 +687,8 @@ export default function CucinaPage() {
       {/* ── Modal overlay ── */}
       {expandedComanda && (
         <DetailModal
-          comanda={expandedComanda} dishDone={dishDone} onDishDone={handleDishDone}
+          comanda={expandedComanda} dishDone={dishDone} dishActivated={dishActivated}
+          onDishDone={handleDishDone}
           isDone={cardsDone.has(expandedComanda.id)} blink={blink}
           onClose={() => setExpandedId(null)} onAllDone={markAllDone}
         />

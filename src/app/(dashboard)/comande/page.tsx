@@ -28,6 +28,14 @@ interface TavoloExt  extends Tavolo { sala: Sala | null; statoInfo: StatoRec | n
 interface MenuItem {
   id: string; nome: string; descrizione: string | null
   prezzo: number; categoria: string; disponibile?: boolean; allergeni?: string[] | null
+  tempo_preparazione_minuti?: number
+}
+
+const TEMPO_DEFAULT: Record<string, number> = {
+  antipasti: 10, primi: 15, secondi: 20, dolci: 6, bevande: 2, vini: 2, menu_cani: 5,
+}
+function tempoPiatto(p: MenuItem): number {
+  return p.tempo_preparazione_minuti ?? TEMPO_DEFAULT[p.categoria] ?? 10
 }
 interface RigaOrdine { localId: string; piatto: MenuItem; quantita: number; note: string; inviata: boolean }
 interface ClienteVip { id: string; nome: string; cognome: string; tier: string | null; allergie: string | null }
@@ -65,30 +73,30 @@ const SC_HEX: Record<StatoTavolo, { bg: string; fg: string; border: string; dot:
 }
 
 const MOCK_MENU: MenuItem[] = [
-  { id: 'm1',  nome: 'Crudo di mare misto',              descrizione: 'Gamberi, scampi, ostriche, capesante',     prezzo: 28, categoria: 'antipasti', allergeni: ['crostacei','molluschi']         },
-  { id: 'm2',  nome: 'Carpaccio di tonno rosso',          descrizione: 'Bottarga, rucola, capperi',                prezzo: 22, categoria: 'antipasti', allergeni: ['pesce']                         },
-  { id: 'm3',  nome: 'Polpo alla brace',                  descrizione: 'Insalata di patate, olive taggiasche',     prezzo: 18, categoria: 'antipasti', allergeni: ['molluschi']                      },
-  { id: 'm4',  nome: 'Burrata con alici marinate',        descrizione: 'Burrata pugliese DOP, olio al basilico',   prezzo: 16, categoria: 'antipasti', allergeni: ['lattosio','pesce']               },
-  { id: 'm5',  nome: 'Frittura di paranza',               descrizione: 'Calamari, gamberi, alici, zucchine',       prezzo: 20, categoria: 'antipasti', allergeni: ['glutine','pesce','crostacei']    },
-  { id: 'm6',  nome: 'Strozzapreti al ragù di scorfano',  descrizione: 'Pasta fresca, pomodorini',                 prezzo: 18, categoria: 'primi',     allergeni: ['glutine','pesce']               },
-  { id: 'm7',  nome: 'Tagliolini al granchio blu',        descrizione: 'Granchio blu adriatico, San Marzano',      prezzo: 24, categoria: 'primi',     allergeni: ['glutine','crostacei']           },
-  { id: 'm8',  nome: 'Risotto allo scoglio',              descrizione: 'Vongole, cozze, gamberi, scampi',          prezzo: 22, categoria: 'primi',     allergeni: ['molluschi','crostacei']         },
-  { id: 'm9',  nome: 'Spaghetti alle vongole veraci',     descrizione: 'Aglio, olio, peperoncino',                 prezzo: 19, categoria: 'primi',     allergeni: ['glutine','molluschi']           },
-  { id: 'm10', nome: 'Branzino alla griglia',             descrizione: 'Branzino adriatico, erbe aromatiche',      prezzo: 32, categoria: 'secondi',   allergeni: ['pesce']                         },
-  { id: 'm11', nome: 'Filetto di manzo Chianina',         descrizione: '300g, rosmarino, patate al forno',         prezzo: 38, categoria: 'secondi',   allergeni: null                              },
-  { id: 'm12', nome: 'Astice alla catalana',              descrizione: 'Astice 600g, pomodori, cipolla di Tropea', prezzo: 45, categoria: 'secondi',   allergeni: ['crostacei']                     },
-  { id: 'm13', nome: 'Tiramisù artigianale',              descrizione: 'Mascarpone, savoiardi, caffè, cacao',      prezzo: 9,  categoria: 'dolci',     allergeni: ['uova','lattosio','glutine']      },
-  { id: 'm14', nome: 'Panna cotta ai frutti rossi',       descrizione: 'Vaniglia bourbon, coulis lamponi',         prezzo: 8,  categoria: 'dolci',     allergeni: ['lattosio']                      },
-  { id: 'm15', nome: 'Sorbetto al limone',                descrizione: 'Limoni IGP di Amalfi',                     prezzo: 7,  categoria: 'dolci',     allergeni: null                              },
-  { id: 'm16', nome: 'Acqua naturale 75cl',               descrizione: null,                                       prezzo: 3,  categoria: 'bevande',   allergeni: null                              },
-  { id: 'm17', nome: 'Acqua frizzante 75cl',              descrizione: null,                                       prezzo: 3,  categoria: 'bevande',   allergeni: null                              },
-  { id: 'm18', nome: 'Coca-Cola 33cl',                    descrizione: null,                                       prezzo: 4,  categoria: 'bevande',   allergeni: null                              },
-  { id: 'm19', nome: 'Birra artigianale 33cl',            descrizione: 'Birrificio Adriatico',                     prezzo: 5,  categoria: 'bevande',   allergeni: ['glutine']                       },
-  { id: 'm20', nome: 'Prosecco Valdobbiadene DOCG 75cl',  descrizione: 'Aperitivo o dessert',                      prezzo: 28, categoria: 'vini',      allergeni: ['solfiti']                       },
-  { id: 'm21', nome: 'Sangiovese DOC 75cl',               descrizione: 'Rosso della casa',                         prezzo: 18, categoria: 'vini',      allergeni: ['solfiti']                       },
-  { id: 'm22', nome: 'Pinot Grigio IGT 75cl',             descrizione: 'Bianco leggero',                           prezzo: 16, categoria: 'vini',      allergeni: ['solfiti']                       },
-  { id: 'm23', nome: 'Bistecchine di pollo al vapore 🐕', descrizione: 'Senza sale né spezie',                     prezzo: 8,  categoria: 'menu_cani', allergeni: null                              },
-  { id: 'm24', nome: 'Manzo bollito con carote 🐕',       descrizione: 'Senza condimenti',                         prezzo: 9,  categoria: 'menu_cani', allergeni: null                              },
+  { id: 'm1',  nome: 'Crudo di mare misto',              descrizione: 'Gamberi, scampi, ostriche, capesante',     prezzo: 28, categoria: 'antipasti', allergeni: ['crostacei','molluschi'],  tempo_preparazione_minuti: 10 },
+  { id: 'm2',  nome: 'Carpaccio di tonno rosso',          descrizione: 'Bottarga, rucola, capperi',                prezzo: 22, categoria: 'antipasti', allergeni: ['pesce'],                  tempo_preparazione_minuti: 8  },
+  { id: 'm3',  nome: 'Polpo alla brace',                  descrizione: 'Insalata di patate, olive taggiasche',     prezzo: 18, categoria: 'antipasti', allergeni: ['molluschi'],              tempo_preparazione_minuti: 12 },
+  { id: 'm4',  nome: 'Burrata con alici marinate',        descrizione: 'Burrata pugliese DOP, olio al basilico',   prezzo: 16, categoria: 'antipasti', allergeni: ['lattosio','pesce'],       tempo_preparazione_minuti: 8  },
+  { id: 'm5',  nome: 'Frittura di paranza',               descrizione: 'Calamari, gamberi, alici, zucchine',       prezzo: 20, categoria: 'antipasti', allergeni: ['glutine','pesce','crostacei'], tempo_preparazione_minuti: 10 },
+  { id: 'm6',  nome: 'Strozzapreti al ragù di scorfano',  descrizione: 'Pasta fresca, pomodorini',                 prezzo: 18, categoria: 'primi',     allergeni: ['glutine','pesce'],        tempo_preparazione_minuti: 15 },
+  { id: 'm7',  nome: 'Tagliolini al granchio blu',        descrizione: 'Granchio blu adriatico, San Marzano',      prezzo: 24, categoria: 'primi',     allergeni: ['glutine','crostacei'],    tempo_preparazione_minuti: 14 },
+  { id: 'm8',  nome: 'Risotto allo scoglio',              descrizione: 'Vongole, cozze, gamberi, scampi',          prezzo: 22, categoria: 'primi',     allergeni: ['molluschi','crostacei'],  tempo_preparazione_minuti: 18 },
+  { id: 'm9',  nome: 'Spaghetti alle vongole veraci',     descrizione: 'Aglio, olio, peperoncino',                 prezzo: 19, categoria: 'primi',     allergeni: ['glutine','molluschi'],    tempo_preparazione_minuti: 12 },
+  { id: 'm10', nome: 'Branzino alla griglia',             descrizione: 'Branzino adriatico, erbe aromatiche',      prezzo: 32, categoria: 'secondi',   allergeni: ['pesce'],                  tempo_preparazione_minuti: 20 },
+  { id: 'm11', nome: 'Filetto di manzo Chianina',         descrizione: '300g, rosmarino, patate al forno',         prezzo: 38, categoria: 'secondi',   allergeni: null,                       tempo_preparazione_minuti: 25 },
+  { id: 'm12', nome: 'Astice alla catalana',              descrizione: 'Astice 600g, pomodori, cipolla di Tropea', prezzo: 45, categoria: 'secondi',   allergeni: ['crostacei'],              tempo_preparazione_minuti: 22 },
+  { id: 'm13', nome: 'Tiramisù artigianale',              descrizione: 'Mascarpone, savoiardi, caffè, cacao',      prezzo: 9,  categoria: 'dolci',     allergeni: ['uova','lattosio','glutine'], tempo_preparazione_minuti: 5 },
+  { id: 'm14', nome: 'Panna cotta ai frutti rossi',       descrizione: 'Vaniglia bourbon, coulis lamponi',         prezzo: 8,  categoria: 'dolci',     allergeni: ['lattosio'],               tempo_preparazione_minuti: 5  },
+  { id: 'm15', nome: 'Sorbetto al limone',                descrizione: 'Limoni IGP di Amalfi',                     prezzo: 7,  categoria: 'dolci',     allergeni: null,                       tempo_preparazione_minuti: 3  },
+  { id: 'm16', nome: 'Acqua naturale 75cl',               descrizione: null,                                       prezzo: 3,  categoria: 'bevande',   allergeni: null,                       tempo_preparazione_minuti: 1  },
+  { id: 'm17', nome: 'Acqua frizzante 75cl',              descrizione: null,                                       prezzo: 3,  categoria: 'bevande',   allergeni: null,                       tempo_preparazione_minuti: 1  },
+  { id: 'm18', nome: 'Coca-Cola 33cl',                    descrizione: null,                                       prezzo: 4,  categoria: 'bevande',   allergeni: null,                       tempo_preparazione_minuti: 1  },
+  { id: 'm19', nome: 'Birra artigianale 33cl',            descrizione: 'Birrificio Adriatico',                     prezzo: 5,  categoria: 'bevande',   allergeni: ['glutine'],                tempo_preparazione_minuti: 2  },
+  { id: 'm20', nome: 'Prosecco Valdobbiadene DOCG 75cl',  descrizione: 'Aperitivo o dessert',                      prezzo: 28, categoria: 'vini',      allergeni: ['solfiti'],                tempo_preparazione_minuti: 2  },
+  { id: 'm21', nome: 'Sangiovese DOC 75cl',               descrizione: 'Rosso della casa',                         prezzo: 18, categoria: 'vini',      allergeni: ['solfiti'],                tempo_preparazione_minuti: 2  },
+  { id: 'm22', nome: 'Pinot Grigio IGT 75cl',             descrizione: 'Bianco leggero',                           prezzo: 16, categoria: 'vini',      allergeni: ['solfiti'],                tempo_preparazione_minuti: 2  },
+  { id: 'm23', nome: 'Bistecchine di pollo al vapore 🐕', descrizione: 'Senza sale né spezie',                     prezzo: 8,  categoria: 'menu_cani', allergeni: null,                       tempo_preparazione_minuti: 5  },
+  { id: 'm24', nome: 'Manzo bollito con carote 🐕',       descrizione: 'Senza condimenti',                         prezzo: 9,  categoria: 'menu_cani', allergeni: null,                       tempo_preparazione_minuti: 6  },
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -318,7 +326,7 @@ export default function ComandeProPage() {
         queryDB<Sala>('sale',        { select: 'id,nome,colore,ordine', order: { col: 'ordine' } }),
         queryDB<Tavolo>('tavoli',    { select: 'id,nome,capienza,sala_id,pos_x,pos_y,larghezza,altezza,rotazione,forma', order: { col: 'nome' } }),
         queryDB<StatoRec>('stato_tavoli', { select: 'tavolo_id,stato,ora_apertura,cameriere_assegnato,coperti_effettivi' }),
-        queryDB<MenuItem>('menu',    { select: 'id,nome,descrizione,prezzo,categoria,disponibile,allergeni', order: { col: 'categoria' } }),
+        queryDB<MenuItem>('menu',    { select: 'id,nome,descrizione,prezzo,categoria,disponibile,allergeni,tempo_preparazione_minuti', order: { col: 'categoria' } }),
       ])
 
       const saleList   = resS.status  === 'fulfilled' ? resS.value  : []
@@ -502,6 +510,7 @@ export default function ComandeProPage() {
         prezzo:      r.piatto.prezzo,
         quantita:    r.quantita,
         note:        r.note,
+        tempo_prep:  tempoPiatto(r.piatto),
       })) satisfies RigaLocal[],
       created_at:    new Date().toISOString(),
       sincronizzata: 0,
@@ -605,6 +614,12 @@ export default function ComandeProPage() {
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────────
+  const tempoStimatoMinuti = useMemo(() => {
+    const nuovi = righe.filter(r => !r.inviata)
+    if (nuovi.length === 0) return 0
+    return Math.max(...nuovi.map(r => tempoPiatto(r.piatto)))
+  }, [righe])
+
   const tavoliFiltrati = salaFiltro === 'all' ? tavoli : tavoli.filter(t => t.sala_id === salaFiltro)
   const nLiberi   = tavoliFiltrati.filter(t => !t.statoInfo || t.statoInfo.stato === 'libero').length
   const nOccupati = tavoliFiltrati.filter(t => t.statoInfo?.stato === 'occupato').length
@@ -1230,6 +1245,13 @@ export default function ComandeProPage() {
                 />
               </div>
             </div>
+
+            {tempoStimatoMinuti > 0 && (
+              <div className="flex items-center gap-2 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-700 text-sm">
+                <Clock className="w-4 h-4 shrink-0" />
+                Tempo stimato preparazione: <strong>~{tempoStimatoMinuti} minuti</strong>
+              </div>
+            )}
 
             {!isOnline && (
               <div className="flex items-center gap-2 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-600 text-sm">

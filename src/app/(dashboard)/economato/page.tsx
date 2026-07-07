@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Package, Plus, AlertTriangle, X, Edit2, Check, Trash2, Terminal } from 'lucide-react'
+import { Package, Plus, AlertTriangle, X, Edit2, Check, Trash2, Terminal, Flame } from 'lucide-react'
 import { queryDB, insertDB, updateDB, deleteDB } from '@/lib/api'
 import { formatEuro } from '@/lib/utils'
 
@@ -16,6 +16,8 @@ interface Prodotto {
   categorie_economato?: { nome: string; colore: string; icona: string } | null
 }
 interface PrenRow { coperti: number; stato: string }
+interface RigaAttiva { piatto_nome: string; categoria: string; quantita: number; tempo_prep?: number }
+interface ComandaAttiva { id: string; tavolo_nome: string | null; numero_tavolo: string | null; righe: RigaAttiva[]; inviata_at: string | null; created_at: string }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const UNITA = ['pz', 'kg', 'g', 'l', 'cl', 'ml', 'bottiglie', 'casse', 'confezioni', 'rotoli', 'tovaglioli']
@@ -192,13 +194,13 @@ export default function EconomatoPage() {
   const [catSel,       setCatSel]       = useState<string>('tutti')
   const [showAddCat,   setShowAddCat]   = useState(false)
   const [prodModal,    setProdModal]    = useState<{ prod?: Prodotto } | null>(null)
+  const [comandeAttive, setComandeAttive] = useState<ComandaAttiva[]>([])
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState<string | null>(null)
   const [tableMissing, setTableMissing] = useState(false)
 
   useEffect(() => {
     load()
-    // Carica prenotazioni di oggi per calcolo fabbisogno
     const oggi = new Date().toISOString().split('T')[0]
     queryDB<PrenRow>('prenotazioni', {
       select: 'coperti,stato',
@@ -208,6 +210,23 @@ export default function EconomatoPage() {
         { fn: 'neq', args: ['stato', 'no_show'] },
       ],
     }).then(r => setPrenOggi(r))
+
+    // Uscite in tempo reale: comande attive
+    function fetchAttive() {
+      queryDB<ComandaAttiva>('comande', {
+        select: 'id,tavolo_nome,numero_tavolo,righe,inviata_at,created_at',
+        filters: [{ fn: 'neq', args: ['stato', 'completata'] }],
+        limit: 100,
+      }).then(rows => {
+        setComandeAttive(rows.map(c => ({
+          ...c,
+          righe: (typeof c.righe === 'string' ? JSON.parse(c.righe) : c.righe) as RigaAttiva[],
+        })))
+      }).catch(() => {})
+    }
+    fetchAttive()
+    const id = setInterval(fetchAttive, 15_000)
+    return () => clearInterval(id)
   }, [])
 
   async function load() {
@@ -273,6 +292,26 @@ export default function EconomatoPage() {
 
   // Fabbisogno giornaliero
   const copertiOggi = prenOggi.reduce((s, p) => s + (p.coperti ?? 0), 0)
+
+  // Uscite in tempo reale: aggrega righe per categoria
+  const usciteRealtime = (() => {
+    const map: Record<string, { piatto_nome: string; quantita: number; tavoli: string[] }[]> = {}
+    for (const c of comandeAttive) {
+      const tavolo = c.tavolo_nome ?? c.numero_tavolo ?? 'T?'
+      for (const r of c.righe) {
+        const cat = r.categoria ?? 'altro'
+        if (!map[cat]) map[cat] = []
+        const existing = map[cat].find(e => e.piatto_nome === r.piatto_nome)
+        if (existing) {
+          existing.quantita += r.quantita
+          if (!existing.tavoli.includes(tavolo)) existing.tavoli.push(tavolo)
+        } else {
+          map[cat].push({ piatto_nome: r.piatto_nome, quantita: r.quantita, tavoli: [tavolo] })
+        }
+      }
+    }
+    return map
+  })()
 
   const filtered = catSel === 'tutti'
     ? prodotti
@@ -392,6 +431,38 @@ export default function EconomatoPage() {
                 <p className="text-sm font-bold text-blue-800">~{f.stima}</p>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Uscite in tempo reale */}
+      {Object.keys(usciteRealtime).length > 0 && (
+        <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Flame className="w-4 h-4 text-orange-600" />
+            <p className="text-sm font-semibold text-orange-800">
+              Uscite in tempo reale — {comandeAttive.length} tavo{comandeAttive.length === 1 ? 'lo' : 'li'} attiv{comandeAttive.length === 1 ? 'o' : 'i'}
+            </p>
+            <span className="ml-auto text-[10px] text-orange-500 font-medium">aggiorna ogni 15s</span>
+          </div>
+          <div className="space-y-3">
+            {['antipasti','primi','secondi','dolci','bevande','vini','menu_cani','altro']
+              .filter(cat => usciteRealtime[cat]?.length)
+              .map(cat => (
+                <div key={cat}>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-orange-600 mb-1.5">{cat}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {usciteRealtime[cat].map(item => (
+                      <div key={item.piatto_nome} className="bg-white border border-orange-100 rounded-lg px-3 py-1.5 flex items-center gap-2 shadow-sm">
+                        <span className="font-bold text-orange-700 text-sm">{item.quantita}×</span>
+                        <span className="text-slate-700 text-sm font-medium">{item.piatto_nome}</span>
+                        <span className="text-[10px] text-slate-400">{item.tavoli.join(', ')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            }
           </div>
         </div>
       )}

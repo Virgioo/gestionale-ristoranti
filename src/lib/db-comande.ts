@@ -7,6 +7,7 @@ export interface RigaLocal {
   prezzo: number
   quantita: number
   note: string
+  tempo_prep?: number
 }
 
 export interface ComandaLocal {

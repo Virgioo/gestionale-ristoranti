@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { queryDB, updateDB } from '@/lib/api'
 import { formatEuro } from '@/lib/utils'
+import { Clock, Check, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 interface MenuItem {
@@ -14,41 +15,92 @@ interface MenuItem {
   disponibile: boolean
   allergeni: string[] | null
   adatto_cani: boolean
+  tempo_preparazione_minuti?: number
+}
+
+const TEMPO_CAT: Record<string, number> = {
+  antipasti: 10, primi: 15, secondi: 20, dolci: 6,
+  bevande: 2, vini: 2, menu_cani: 5,
 }
 
 const MOCK_MENU: MenuItem[] = [
-  { id: 'm1',  nome: 'Crudo di mare misto',            descrizione: 'Gamberi rossi, scampi, ostriche e capesante con limone e olio EVO',         prezzo: 28, categoria: 'antipasti', disponibile: true, allergeni: ['molluschi','crostacei'], adatto_cani: false },
-  { id: 'm2',  nome: 'Carpaccio di tonno rosso',        descrizione: 'Tonno rosso, bottarga di muggine, rucola e capperi di Pantelleria',          prezzo: 22, categoria: 'antipasti', disponibile: true, allergeni: ['pesce'], adatto_cani: false },
-  { id: 'm3',  nome: 'Polpo alla brace',                descrizione: 'Polpo verace su insalata di patate, olive taggiasche e prezzemolo',          prezzo: 18, categoria: 'antipasti', disponibile: true, allergeni: ['molluschi'], adatto_cani: false },
-  { id: 'm4',  nome: 'Burrata con alici marinate',      descrizione: 'Burrata pugliese DOP, alici del Cantabrico e olio al basilico',              prezzo: 16, categoria: 'antipasti', disponibile: true, allergeni: ['latte','pesce'], adatto_cani: false },
-  { id: 'm5',  nome: 'Frittura di paranza leggera',     descrizione: 'Calamari, gamberi, alici e zucchine pastellati',                             prezzo: 20, categoria: 'antipasti', disponibile: true, allergeni: ['pesce','glutine'], adatto_cani: false },
-  { id: 'm6',  nome: 'Strozzapreti al ragù di scorfano', descrizione: 'Pasta fresca con ragù di scorfano e pomodorini',                            prezzo: 18, categoria: 'primi',    disponibile: true, allergeni: ['glutine','pesce'], adatto_cani: false },
-  { id: 'm7',  nome: 'Tagliolini al granchio blu',       descrizione: 'Pasta fresca con granchio blu dell\'Adriatico e pomodoro San Marzano',       prezzo: 24, categoria: 'primi',    disponibile: true, allergeni: ['glutine','crostacei'], adatto_cani: false },
-  { id: 'm8',  nome: 'Risotto allo scoglio',             descrizione: 'Carnaroli mantecato con vongole, cozze, gamberi e scampi',                  prezzo: 22, categoria: 'primi',    disponibile: true, allergeni: ['molluschi','crostacei'], adatto_cani: false },
-  { id: 'm9',  nome: 'Spaghetti alle vongole veraci',    descrizione: 'Spaghetti di Gragnano, vongole veraci, aglio e peperoncino',                prezzo: 19, categoria: 'primi',    disponibile: true, allergeni: ['glutine','molluschi'], adatto_cani: false },
-  { id: 'm10', nome: 'Branzino selvaggio alla griglia',  descrizione: 'Branzino dell\'Adriatico, erbe aromatiche, limone e olio EVO DOP',          prezzo: 32, categoria: 'secondi',  disponibile: true, allergeni: ['pesce'], adatto_cani: false },
-  { id: 'm11', nome: 'Filetto di manzo Chianina',        descrizione: 'Filetto IGP 300g, rosmarino, aglio confit e patate al forno',               prezzo: 38, categoria: 'secondi',  disponibile: true, allergeni: null, adatto_cani: false },
-  { id: 'm12', nome: 'Astice alla catalana',             descrizione: 'Astice bretone 600g con pomodori camone e cipolla rossa di Tropea',         prezzo: 45, categoria: 'secondi',  disponibile: true, allergeni: ['crostacei','glutine'], adatto_cani: false },
-  { id: 'm13', nome: 'Tiramisù artigianale',             descrizione: 'Mascarpone, savoiardi, caffè espresso, uova fresche e cacao',               prezzo: 9,  categoria: 'dolci',    disponibile: true, allergeni: ['glutine','uova','latte'], adatto_cani: false },
-  { id: 'm14', nome: 'Panna cotta ai frutti rossi',      descrizione: 'Panna cotta alla vaniglia bourbon con coulis di lamponi e more',            prezzo: 8,  categoria: 'dolci',    disponibile: true, allergeni: ['latte'], adatto_cani: false },
-  { id: 'm15', nome: 'Sorbetto al limone di Amalfi',     descrizione: 'Sorbetto artigianale con limoni IGP servito in scorza di limone',           prezzo: 7,  categoria: 'dolci',    disponibile: true, allergeni: null, adatto_cani: false },
-  { id: 'm16', nome: 'Verdicchio dei Castelli di Jesi DOC 75cl', descrizione: 'Bianco strutturato — abbinamento perfetto con pesce',               prezzo: 22, categoria: 'vini',     disponibile: true, allergeni: ['solfiti'], adatto_cani: false },
-  { id: 'm17', nome: 'Trebbiano d\'Abruzzo DOC 75cl',    descrizione: 'Bianco fresco e sapido, produzione biologica',                              prezzo: 18, categoria: 'vini',     disponibile: true, allergeni: ['solfiti'], adatto_cani: false },
-  { id: 'm18', nome: 'Montepulciano d\'Abruzzo DOC 75cl', descrizione: 'Rosso pieno e corposo, affinato 18 mesi in barriques',                    prezzo: 22, categoria: 'vini',     disponibile: true, allergeni: ['solfiti'], adatto_cani: false },
-  { id: 'm19', nome: 'Prosecco Valdobbiadene DOCG 75cl', descrizione: 'Bollicine fini e persistenti — per aperitivo e dessert',                   prezzo: 28, categoria: 'vini',     disponibile: true, allergeni: ['solfiti'], adatto_cani: false },
-  { id: 'm20', nome: 'Acqua minerale 75cl',               descrizione: null,                                                                        prezzo: 3,  categoria: 'bevande',  disponibile: true, allergeni: null, adatto_cani: false },
-  { id: 'm21', nome: 'Acqua frizzante 75cl',              descrizione: null,                                                                        prezzo: 3,  categoria: 'bevande',  disponibile: true, allergeni: null, adatto_cani: false },
-  { id: 'm22', nome: 'Bistecchine di pollo al vapore 🐕', descrizione: 'Pollo biologico al vapore, senza sale né spezie — per i tuoi amici a 4 zampe', prezzo: 8, categoria: 'menu_cani', disponibile: true, allergeni: null, adatto_cani: true },
-  { id: 'm23', nome: 'Manzo bollito con carote 🐕',       descrizione: 'Manzo magro bollito con carote e zucchine, senza condimenti',              prezzo: 9,  categoria: 'menu_cani', disponibile: true, allergeni: null, adatto_cani: true },
-  { id: 'm24', nome: 'Riso integrale con verdure 🐕',     descrizione: 'Riso integrale biologico, carote, zucchine e fagiolini — senza sale',     prezzo: 6,  categoria: 'menu_cani', disponibile: true, allergeni: null, adatto_cani: true },
+  { id: 'm1',  nome: 'Crudo di mare misto',                descrizione: 'Gamberi rossi, scampi, ostriche e capesante con limone e olio EVO',         prezzo: 28, categoria: 'antipasti', disponibile: true, allergeni: ['molluschi','crostacei'], adatto_cani: false, tempo_preparazione_minuti: 10 },
+  { id: 'm2',  nome: 'Carpaccio di tonno rosso',           descrizione: 'Tonno rosso, bottarga di muggine, rucola e capperi di Pantelleria',          prezzo: 22, categoria: 'antipasti', disponibile: true, allergeni: ['pesce'], adatto_cani: false, tempo_preparazione_minuti: 8  },
+  { id: 'm3',  nome: 'Polpo alla brace',                   descrizione: 'Polpo verace su insalata di patate, olive taggiasche e prezzemolo',          prezzo: 18, categoria: 'antipasti', disponibile: true, allergeni: ['molluschi'], adatto_cani: false, tempo_preparazione_minuti: 12 },
+  { id: 'm4',  nome: 'Burrata con alici marinate',         descrizione: 'Burrata pugliese DOP, alici del Cantabrico e olio al basilico',              prezzo: 16, categoria: 'antipasti', disponibile: true, allergeni: ['latte','pesce'], adatto_cani: false, tempo_preparazione_minuti: 8  },
+  { id: 'm5',  nome: 'Frittura di paranza leggera',        descrizione: 'Calamari, gamberi, alici e zucchine pastellati',                             prezzo: 20, categoria: 'antipasti', disponibile: true, allergeni: ['pesce','glutine'], adatto_cani: false, tempo_preparazione_minuti: 10 },
+  { id: 'm6',  nome: 'Strozzapreti al ragù di scorfano',   descrizione: 'Pasta fresca con ragù di scorfano e pomodorini',                             prezzo: 18, categoria: 'primi',    disponibile: true, allergeni: ['glutine','pesce'], adatto_cani: false, tempo_preparazione_minuti: 15 },
+  { id: 'm7',  nome: 'Tagliolini al granchio blu',         descrizione: 'Pasta fresca con granchio blu dell\'Adriatico e pomodoro San Marzano',        prezzo: 24, categoria: 'primi',    disponibile: true, allergeni: ['glutine','crostacei'], adatto_cani: false, tempo_preparazione_minuti: 14 },
+  { id: 'm8',  nome: 'Risotto allo scoglio',               descrizione: 'Carnaroli mantecato con vongole, cozze, gamberi e scampi',                   prezzo: 22, categoria: 'primi',    disponibile: true, allergeni: ['molluschi','crostacei'], adatto_cani: false, tempo_preparazione_minuti: 18 },
+  { id: 'm9',  nome: 'Spaghetti alle vongole veraci',      descrizione: 'Spaghetti di Gragnano, vongole veraci, aglio e peperoncino',                 prezzo: 19, categoria: 'primi',    disponibile: true, allergeni: ['glutine','molluschi'], adatto_cani: false, tempo_preparazione_minuti: 12 },
+  { id: 'm10', nome: 'Branzino selvaggio alla griglia',    descrizione: 'Branzino dell\'Adriatico, erbe aromatiche, limone e olio EVO DOP',           prezzo: 32, categoria: 'secondi',  disponibile: true, allergeni: ['pesce'], adatto_cani: false, tempo_preparazione_minuti: 20 },
+  { id: 'm11', nome: 'Filetto di manzo Chianina',          descrizione: 'Filetto IGP 300g, rosmarino, aglio confit e patate al forno',                prezzo: 38, categoria: 'secondi',  disponibile: true, allergeni: null, adatto_cani: false, tempo_preparazione_minuti: 25 },
+  { id: 'm12', nome: 'Astice alla catalana',               descrizione: 'Astice bretone 600g con pomodori camone e cipolla rossa di Tropea',          prezzo: 45, categoria: 'secondi',  disponibile: true, allergeni: ['crostacei','glutine'], adatto_cani: false, tempo_preparazione_minuti: 22 },
+  { id: 'm13', nome: 'Tiramisù artigianale',               descrizione: 'Mascarpone, savoiardi, caffè espresso, uova fresche e cacao',                prezzo: 9,  categoria: 'dolci',    disponibile: true, allergeni: ['glutine','uova','latte'], adatto_cani: false, tempo_preparazione_minuti: 5  },
+  { id: 'm14', nome: 'Panna cotta ai frutti rossi',        descrizione: 'Panna cotta alla vaniglia bourbon con coulis di lamponi e more',             prezzo: 8,  categoria: 'dolci',    disponibile: true, allergeni: ['latte'], adatto_cani: false, tempo_preparazione_minuti: 5  },
+  { id: 'm15', nome: 'Sorbetto al limone di Amalfi',       descrizione: 'Sorbetto artigianale con limoni IGP servito in scorza di limone',            prezzo: 7,  categoria: 'dolci',    disponibile: true, allergeni: null, adatto_cani: false, tempo_preparazione_minuti: 3  },
+  { id: 'm16', nome: 'Verdicchio dei Castelli di Jesi DOC 75cl', descrizione: 'Bianco strutturato — abbinamento perfetto con pesce',                prezzo: 22, categoria: 'vini',     disponibile: true, allergeni: ['solfiti'], adatto_cani: false, tempo_preparazione_minuti: 2  },
+  { id: 'm17', nome: 'Trebbiano d\'Abruzzo DOC 75cl',      descrizione: 'Bianco fresco e sapido, produzione biologica',                               prezzo: 18, categoria: 'vini',     disponibile: true, allergeni: ['solfiti'], adatto_cani: false, tempo_preparazione_minuti: 2  },
+  { id: 'm18', nome: 'Montepulciano d\'Abruzzo DOC 75cl',  descrizione: 'Rosso pieno e corposo, affinato 18 mesi in barriques',                       prezzo: 22, categoria: 'vini',     disponibile: true, allergeni: ['solfiti'], adatto_cani: false, tempo_preparazione_minuti: 2  },
+  { id: 'm19', nome: 'Prosecco Valdobbiadene DOCG 75cl',   descrizione: 'Bollicine fini e persistenti — per aperitivo e dessert',                    prezzo: 28, categoria: 'vini',     disponibile: true, allergeni: ['solfiti'], adatto_cani: false, tempo_preparazione_minuti: 2  },
+  { id: 'm20', nome: 'Acqua minerale 75cl',                descrizione: null,                                                                         prezzo: 3,  categoria: 'bevande',  disponibile: true, allergeni: null, adatto_cani: false, tempo_preparazione_minuti: 1  },
+  { id: 'm21', nome: 'Acqua frizzante 75cl',               descrizione: null,                                                                         prezzo: 3,  categoria: 'bevande',  disponibile: true, allergeni: null, adatto_cani: false, tempo_preparazione_minuti: 1  },
+  { id: 'm22', nome: 'Bistecchine di pollo al vapore 🐕',  descrizione: 'Pollo biologico al vapore, senza sale né spezie — per i tuoi amici a 4 zampe', prezzo: 8, categoria: 'menu_cani', disponibile: true, allergeni: null, adatto_cani: true, tempo_preparazione_minuti: 5  },
+  { id: 'm23', nome: 'Manzo bollito con carote 🐕',        descrizione: 'Manzo magro bollito con carote e zucchine, senza condimenti',               prezzo: 9,  categoria: 'menu_cani', disponibile: true, allergeni: null, adatto_cani: true, tempo_preparazione_minuti: 6  },
+  { id: 'm24', nome: 'Riso integrale con verdure 🐕',      descrizione: 'Riso integrale biologico, carote, zucchine e fagiolini — senza sale',      prezzo: 6,  categoria: 'menu_cani', disponibile: true, allergeni: null, adatto_cani: true, tempo_preparazione_minuti: 5  },
 ]
 
+// ─── Inline prep-time editor ──────────────────────────────────────────────────
+function TempoPrepEditor({ item, isMock, onSave }: {
+  item: MenuItem
+  isMock: boolean
+  onSave: (min: number) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal]         = useState(String(item.tempo_preparazione_minuti ?? TEMPO_CAT[item.categoria] ?? 10))
+
+  if (!editing) return (
+    <button
+      onClick={() => { if (!isMock) setEditing(true) }}
+      title={isMock ? 'Modifica disabilitata in modalità demo' : 'Modifica tempo di preparazione'}
+      className={`flex items-center gap-1 text-xs transition ${isMock ? 'text-slate-300 cursor-default' : 'text-slate-400 hover:text-orange-500 cursor-pointer'}`}
+    >
+      <Clock className="w-3 h-3" />
+      {item.tempo_preparazione_minuti ?? TEMPO_CAT[item.categoria] ?? 10} min
+    </button>
+  )
+
+  return (
+    <div className="flex items-center gap-1">
+      <Clock className="w-3 h-3 text-slate-400" />
+      <input
+        autoFocus type="number" min={1} max={120}
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter') { const v = Math.max(1, parseInt(val) || 10); onSave(v); setEditing(false) }
+          if (e.key === 'Escape') setEditing(false)
+        }}
+        className="w-14 px-1.5 py-0.5 text-xs border border-orange-400 rounded focus:outline-none"
+      />
+      <span className="text-xs text-slate-400">min</span>
+      <button onClick={() => { const v = Math.max(1, parseInt(val) || 10); onSave(v); setEditing(false) }}
+        className="text-emerald-500 hover:text-emerald-600">
+        <Check className="w-3.5 h-3.5" />
+      </button>
+      <button onClick={() => setEditing(false)} className="text-slate-400 hover:text-slate-600">
+        <X className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  )
+}
+
 export default function MenuPage() {
-  const [items, setItems] = useState<MenuItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [isMock, setIsMock] = useState(false)
+  const [items, setItems]       = useState<MenuItem[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [isMock, setIsMock]     = useState(false)
   const [categoria, setCategoria] = useState('tutte')
-  const [soloCani, setSoloCani] = useState(false)
+  const [soloCani, setSoloCani]  = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -61,7 +113,6 @@ export default function MenuPage() {
         setItems(data)
         setIsMock(false)
       } catch {
-        // Tabella 'menu' non presente nel DB — usa dati di esempio
         let data = MOCK_MENU
         if (categoria !== 'tutte') data = data.filter(i => i.categoria === categoria)
         if (soloCani) data = data.filter(i => i.adatto_cani)
@@ -86,6 +137,16 @@ export default function MenuPage() {
       toast.success(disponibile ? 'Articolo disponibile' : 'Articolo non disponibile')
     } catch {
       toast.error('Errore')
+    }
+  }
+
+  async function updateTempo(id: string, min: number) {
+    try {
+      await updateDB('menu', { tempo_preparazione_minuti: min }, { id })
+      setItems(prev => prev.map(i => i.id === id ? { ...i, tempo_preparazione_minuti: min } : i))
+      toast.success(`Tempo aggiornato: ${min} min`)
+    } catch {
+      toast.error('Errore aggiornamento tempo')
     }
   }
 
@@ -153,10 +214,18 @@ export default function MenuPage() {
                   </div>
                   <p className="text-lg font-bold text-orange-600 shrink-0">{formatEuro(item.prezzo)}</p>
                 </div>
+
                 <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${item.disponibile ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                    {item.disponibile ? 'Disponibile' : 'Non disponibile'}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${item.disponibile ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                      {item.disponibile ? 'Disponibile' : 'Non disponibile'}
+                    </span>
+                    <TempoPrepEditor
+                      item={item}
+                      isMock={isMock}
+                      onSave={min => updateTempo(item.id, min)}
+                    />
+                  </div>
                   <button
                     onClick={() => toggleDisponibile(item.id, !item.disponibile)}
                     className="text-xs text-orange-500 hover:underline"
