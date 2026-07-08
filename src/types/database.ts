@@ -2,10 +2,13 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 
 // ── Row shapes ──────────────────────────────────────────────────────────────
 interface SedeRow {
-  id: string; nome: string; indirizzo: string; citta: string
+  id: string; nome: string; slug: string; tipo: string | null
+  indirizzo: string; citta: string; cap: string | null
   telefono: string | null; email: string | null
-  coperti_totali?: number; capienza?: number
-  attiva: boolean; created_at: string
+  orari_pranzo: string | null; orari_cena: string | null
+  coperti_totali: number | null; posti_prive: number | null
+  pet_friendly: boolean; colore_hex: string | null
+  attiva: boolean; created_at: string; updated_at: string
 }
 interface ClienteRow {
   id: string; nome: string; cognome: string; email: string | null
@@ -22,10 +25,16 @@ interface VisitaRow {
   persone: number; animali: number; spesa_totale: number; note: string | null; created_at: string
 }
 interface PrenotazioneRow {
-  id: string; cliente_id: string | null; sede_id: string; data: string; ora: string
-  persone: number; animali: number
+  id: string; sede_id: string; cliente_id: string | null
+  nome_ospite: string; telefono_ospite: string | null
+  data_prenotazione: string; ora_arrivo: string; coperti: number
+  tipo_tavolo: string | null
   stato: 'confermata' | 'in_attesa' | 'cancellata' | 'completata' | 'no_show'
-  note: string | null; tavolo: string | null; created_at: string
+  note_speciali: string | null; allergie_comunicare: string | null
+  con_animale: boolean; animale_id: string | null
+  occasione_speciale: string | null; confermata_da: string | null
+  origine: string | null; sync_pendente: boolean; device_id: string | null
+  created_at: string; updated_at: string
 }
 interface ComandaRow {
   id: string; sede_id: string; prenotazione_id: string | null; tavolo: string
@@ -74,11 +83,11 @@ interface MenuItemRow {
 export interface Database {
   public: {
     Tables: {
-      sedi: { Row: SedeRow; Insert: Omit<SedeRow, 'id' | 'created_at'>; Update: Partial<SedeRow>; Relationships: [] }
+      sedi: { Row: SedeRow; Insert: Omit<SedeRow, 'id' | 'created_at' | 'updated_at'>; Update: Partial<SedeRow>; Relationships: [] }
       clienti: { Row: ClienteRow; Insert: Omit<ClienteRow, 'id' | 'created_at' | 'visite_totali'>; Update: Partial<ClienteRow>; Relationships: [] }
       animali: { Row: AnimaleRow; Insert: Omit<AnimaleRow, 'id' | 'created_at'>; Update: Partial<AnimaleRow>; Relationships: [] }
       visite: { Row: VisitaRow; Insert: Omit<VisitaRow, 'id' | 'created_at'>; Update: Partial<VisitaRow>; Relationships: [] }
-      prenotazioni: { Row: PrenotazioneRow; Insert: Omit<PrenotazioneRow, 'id' | 'created_at'>; Update: Partial<PrenotazioneRow>; Relationships: [] }
+      prenotazioni: { Row: PrenotazioneRow; Insert: Omit<PrenotazioneRow, 'id' | 'created_at' | 'updated_at'>; Update: Partial<PrenotazioneRow>; Relationships: [] }
       comande: { Row: ComandaRow; Insert: Omit<ComandaRow, 'id' | 'created_at' | 'updated_at'>; Update: Partial<ComandaRow>; Relationships: [] }
       righe_comanda: { Row: RigaComandaRow; Insert: Omit<RigaComandaRow, 'id' | 'created_at'>; Update: Partial<RigaComandaRow>; Relationships: [] }
       staff: { Row: StaffRow; Insert: Omit<StaffRow, 'id' | 'created_at'>; Update: Partial<StaffRow>; Relationships: [] }

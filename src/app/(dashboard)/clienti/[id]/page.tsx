@@ -22,7 +22,7 @@ export default function ClienteDetailPage() {
       const [{ data: c }, { data: a }, { data: p }, { data: v }] = await Promise.all([
         supabase.from('clienti').select('*').eq('id', id).single(),
         supabase.from('animali').select('*').eq('cliente_id', id),
-        supabase.from('prenotazioni').select('*').eq('cliente_id', id).order('data', { ascending: false }).limit(10),
+        supabase.from('prenotazioni').select('*').eq('cliente_id', id).order('data_prenotazione', { ascending: false }).limit(10),
         supabase.from('visite').select('*').eq('cliente_id', id).order('data', { ascending: false }).limit(10),
       ])
       if (!c) { router.push('/clienti'); return }
@@ -155,9 +155,9 @@ export default function ClienteDetailPage() {
                 <tr><td colSpan={4} className="px-5 py-8 text-center text-slate-400">Nessuna prenotazione</td></tr>
               ) : prenotazioni.map((p) => (
                 <tr key={p.id} className="hover:bg-slate-50">
-                  <td className="px-5 py-3">{formatDate(p.data)}</td>
-                  <td className="px-5 py-3">{p.ora.slice(0, 5)}</td>
-                  <td className="px-5 py-3">{p.persone} {p.animali > 0 ? `+ ${p.animali}🐕` : ''}</td>
+                  <td className="px-5 py-3">{formatDate(p.data_prenotazione)}</td>
+                  <td className="px-5 py-3">{p.ora_arrivo.slice(0, 5)}</td>
+                  <td className="px-5 py-3">{p.coperti} {p.con_animale ? '🐕' : ''}</td>
                   <td className="px-5 py-3"><StatoBadge stato={p.stato} /></td>
                 </tr>
               ))}

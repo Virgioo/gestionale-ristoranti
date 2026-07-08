@@ -5,11 +5,13 @@ import { queryDB, updateDB } from '@/lib/api'
 import { useAppStore } from '@/store'
 import type { Sede } from '@/types/database'
 import toast from 'react-hot-toast'
+import QRCode from 'qrcode'
 
 export default function SediPage() {
   const [sedi, setSedi] = useState<Sede[]>([])
   const [loading, setLoading] = useState(true)
   const { selectedSede, setSelectedSede } = useAppStore()
+  const [qrSede, setQrSede] = useState<Sede | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -111,11 +113,62 @@ export default function SediPage() {
                 >
                   {sede.attiva ? 'Disattiva' : 'Attiva'}
                 </button>
+                <button
+                  onClick={() => setQrSede(sede)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-300 text-slate-600 hover:border-orange-300 transition"
+                  title="QR code prenotazione"
+                >
+                  📱 QR
+                </button>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      {qrSede && <QrModal sede={qrSede} onClose={() => setQrSede(null)} />}
+    </div>
+  )
+}
+
+function QrModal({ sede, onClose }: { sede: Sede; onClose: () => void }) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null)
+  const url = typeof window !== 'undefined' ? `${window.location.origin}/prenota/${sede.slug}` : ''
+
+  useEffect(() => {
+    QRCode.toDataURL(url, { width: 480, margin: 2, color: { dark: '#1e293b', light: '#ffffff' } })
+      .then(setDataUrl)
+      .catch(() => toast.error('Errore generazione QR code'))
+  }, [url])
+
+  function download() {
+    if (!dataUrl) return
+    const a = document.createElement('a')
+    a.href = dataUrl
+    a.download = `qr-prenotazioni-${sede.slug}.png`
+    a.click()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl p-6 max-w-xs w-full text-center" onClick={e => e.stopPropagation()}>
+        <h3 className="font-bold text-slate-900">{sede.nome}</h3>
+        <p className="text-xs text-slate-400 mb-4 break-all">{url}</p>
+        {dataUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={dataUrl} alt={`QR code prenotazioni ${sede.nome}`} className="mx-auto rounded-lg border border-slate-200" />
+        ) : (
+          <div className="h-[240px] flex items-center justify-center text-slate-400 text-xs">Generazione…</div>
+        )}
+        <div className="flex gap-2 mt-5">
+          <button onClick={onClose} className="flex-1 py-2 rounded-lg text-xs font-medium border border-slate-300 text-slate-600 hover:border-orange-300 transition">
+            Chiudi
+          </button>
+          <button onClick={download} disabled={!dataUrl} className="flex-1 py-2 rounded-lg text-xs font-medium bg-orange-500 text-white hover:bg-orange-600 transition disabled:opacity-50">
+            Scarica PNG
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
