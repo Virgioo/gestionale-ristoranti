@@ -29,7 +29,7 @@ export async function proxy(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
   const isAuthRoute = pathname.startsWith('/login')
-  const isPublicRoute = pathname === '/' || isAuthRoute || pathname.startsWith('/prenota')
+  const isPublicRoute = pathname === '/' || isAuthRoute || pathname.startsWith('/prenota') || pathname.startsWith('/widget')
   const isApiRoute = pathname.startsWith('/api')
 
   if (isApiRoute) return supabaseResponse

@@ -116,9 +116,9 @@ export default function SediPage() {
                 <button
                   onClick={() => setQrSede(sede)}
                   className="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-300 text-slate-600 hover:border-orange-300 transition"
-                  title="QR code prenotazione"
+                  title="Condividi link prenotazioni"
                 >
-                  📱 QR
+                  🔗 Condividi
                 </button>
               </div>
             </div>
@@ -126,14 +126,43 @@ export default function SediPage() {
         </div>
       )}
 
-      {qrSede && <QrModal sede={qrSede} onClose={() => setQrSede(null)} />}
+      {qrSede && <ShareModal sede={qrSede} onClose={() => setQrSede(null)} />}
     </div>
   )
 }
 
-function QrModal({ sede, onClose }: { sede: Sede; onClose: () => void }) {
+function CopyRow({ label, value, multiline }: { label: string; value: string; multiline?: boolean }) {
+  function copy() {
+    navigator.clipboard.writeText(value)
+      .then(() => toast.success(`${label} copiato`))
+      .catch(() => toast.error('Copia non riuscita'))
+  }
+  return (
+    <div className="text-left">
+      <p className="text-[11px] font-medium text-slate-500 mb-1">{label}</p>
+      <div className="flex gap-1.5 items-start">
+        {multiline ? (
+          <textarea readOnly value={value} rows={3}
+            className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-[11px] text-slate-600 font-mono resize-none" />
+        ) : (
+          <input readOnly value={value}
+            className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-[11px] text-slate-600 min-w-0" />
+        )}
+        <button onClick={copy}
+          className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium border border-slate-300 text-slate-600 hover:border-orange-300 transition shrink-0">
+          Copia
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ShareModal({ sede, onClose }: { sede: Sede; onClose: () => void }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null)
-  const url = typeof window !== 'undefined' ? `${window.location.origin}/prenota/${sede.slug}` : ''
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  const url = `${origin}/prenota/${sede.slug}`
+  const igBio = `Prenota il tuo tavolo direttamente → ${url}`
+  const iframeCode = `<iframe src="${origin}/widget/${sede.slug}" width="100%" height="600" style="border:none;border-radius:12px" title="Prenota un tavolo — ${sede.nome}"></iframe>`
 
   useEffect(() => {
     QRCode.toDataURL(url, { width: 480, margin: 2, color: { dark: '#1e293b', light: '#ffffff' } })
@@ -151,23 +180,35 @@ function QrModal({ sede, onClose }: { sede: Sede; onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-xl p-6 max-w-xs w-full text-center" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl p-6 max-w-sm w-full text-center max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <h3 className="font-bold text-slate-900">{sede.nome}</h3>
-        <p className="text-xs text-slate-400 mb-4 break-all">{url}</p>
-        {dataUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={dataUrl} alt={`QR code prenotazioni ${sede.nome}`} className="mx-auto rounded-lg border border-slate-200" />
-        ) : (
-          <div className="h-[240px] flex items-center justify-center text-slate-400 text-xs">Generazione…</div>
-        )}
-        <div className="flex gap-2 mt-5">
-          <button onClick={onClose} className="flex-1 py-2 rounded-lg text-xs font-medium border border-slate-300 text-slate-600 hover:border-orange-300 transition">
-            Chiudi
-          </button>
-          <button onClick={download} disabled={!dataUrl} className="flex-1 py-2 rounded-lg text-xs font-medium bg-orange-500 text-white hover:bg-orange-600 transition disabled:opacity-50">
-            Scarica PNG
-          </button>
+        <p className="text-xs text-slate-400 mb-4">Condividi il link di prenotazione</p>
+
+        <div className="space-y-4">
+          <CopyRow label="Link diretto" value={url} />
+
+          <div className="text-left">
+            <p className="text-[11px] font-medium text-slate-500 mb-1">QR code (stampa o vetrina)</p>
+            {dataUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={dataUrl} alt={`QR code prenotazioni ${sede.nome}`} className="mx-auto w-44 rounded-lg border border-slate-200" />
+            ) : (
+              <div className="h-44 flex items-center justify-center text-slate-400 text-xs">Generazione…</div>
+            )}
+            <button onClick={download} disabled={!dataUrl}
+              className="mt-2 w-full py-1.5 rounded-lg text-[11px] font-medium border border-slate-300 text-slate-600 hover:border-orange-300 transition disabled:opacity-50">
+              Scarica PNG
+            </button>
+          </div>
+
+          <CopyRow label="Testo per bio Instagram" value={igBio} />
+          <CopyRow label="Widget per il sito (iframe)" value={iframeCode} multiline />
         </div>
+
+        <button onClick={onClose}
+          className="mt-5 w-full py-2 rounded-lg text-xs font-medium bg-orange-500 text-white hover:bg-orange-600 transition">
+          Chiudi
+        </button>
       </div>
     </div>
   )

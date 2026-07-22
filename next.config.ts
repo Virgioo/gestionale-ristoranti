@@ -14,6 +14,13 @@ const nextConfig: NextConfig = {
           { key: 'Service-Worker-Allowed', value: '/' },
         ],
       },
+      {
+        // il widget deve poter essere incorporato in iframe su siti esterni
+        source: '/widget/:slug',
+        headers: [
+          { key: 'Content-Security-Policy', value: 'frame-ancestors *' },
+        ],
+      },
     ]
   },
 }
