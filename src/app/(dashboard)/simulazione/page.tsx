@@ -1,8 +1,12 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { PlayCircle, RefreshCw, TrendingUp, Clock, Users, Euro, AlertTriangle, Trophy } from 'lucide-react'
+import type { User } from '@supabase/supabase-js'
+import { PlayCircle, RefreshCw, TrendingUp, Clock, Users, Euro, AlertTriangle, Trophy, Sprout } from 'lucide-react'
 import { formatEuro } from '@/lib/utils'
+import { createClient } from '@/lib/supabase'
+import { isAdmin } from '@/lib/roles'
+import { queryDB } from '@/lib/api'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface SerataRecord {
@@ -25,6 +29,32 @@ interface LogLine {
   emoji: string
   msg: string
   ts: string
+}
+
+interface CronRun {
+  id: string
+  data: string
+  giorno_settimana: string
+  stagione: string
+  trigger: string
+  prenotazioni_inserite: number
+  no_show_aggiornati: number
+  visite_inserite: number
+  revenue_aggiunto: number
+  notifiche_generate: number
+  created_at: string
+}
+
+interface SeedResult {
+  data: string
+  giorno_settimana: string
+  stagione: string
+  prenotazioni_inserite: number
+  no_show_aggiornati: number
+  visite_inserite: number
+  revenue_aggiunto: number
+  notifiche_generate: number
+  log: string[]
 }
 
 // ─── Mini bar chart (SVG) ─────────────────────────────────────────────────────
@@ -158,6 +188,50 @@ export default function SimulazionePage() {
   const [loading,    setLoading]    = useState(true)
   const [lastResult, setLastResult] = useState<SerataRecord | null>(null)
 
+  const [user, setUser] = useState<User | null>(null)
+  const [seedRunning, setSeedRunning] = useState(false)
+  const [seedLog, setSeedLog] = useState<LogLine[]>([])
+  const [seedResult, setSeedResult] = useState<SeedResult | null>(null)
+  const [seedHistory, setSeedHistory] = useState<CronRun[]>([])
+  const [seedHistoryErrore, setSeedHistoryErrore] = useState(false)
+
+  useEffect(() => { createClient().auth.getUser().then(({ data }) => setUser(data.user)) }, [])
+
+  const loadSeedHistory = useCallback(async () => {
+    try {
+      const data = await queryDB<CronRun>('cron_runs', { order: { col: 'created_at', asc: false }, limit: 7 })
+      setSeedHistory(data)
+      setSeedHistoryErrore(false)
+    } catch {
+      setSeedHistoryErrore(true)
+    }
+  }, [])
+
+  useEffect(() => { if (isAdmin(user)) loadSeedHistory() }, [user, loadSeedHistory])
+
+  async function eseguiSeedOggi() {
+    if (seedRunning) return
+    setSeedRunning(true)
+    setSeedLog([])
+    setSeedResult(null)
+    try {
+      const res = await fetch('/api/cron/daily-seed', { method: 'POST' })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error ?? 'Errore sconosciuto')
+      setSeedResult(result)
+      setSeedLog((result.log ?? []).map((msg: string) => ({
+        emoji: msg.match(/^\p{Emoji}/u)?.[0] ?? '📦',
+        msg: msg.replace(/^\p{Emoji}\s*/u, ''),
+        ts: new Date().toLocaleTimeString('it-IT'),
+      })))
+      await loadSeedHistory()
+    } catch (err) {
+      setSeedLog(prev => [...prev, { emoji: '❌', msg: String(err), ts: new Date().toLocaleTimeString('it-IT') }])
+    } finally {
+      setSeedRunning(false)
+    }
+  }
+
   const loadHistory = useCallback(async () => {
     setLoading(true)
     try {
@@ -267,6 +341,103 @@ export default function SimulazionePage() {
           </button>
         </div>
       </div>
+
+      {/* Auto-seed giornaliero — solo admin */}
+      {isAdmin(user) ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-green-600 flex items-center justify-center shrink-0">
+                <Sprout className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Auto-seed giornaliero</h2>
+                <p className="text-slate-500 text-xs">Genera prenotazioni, no-show, visite e notifiche realistiche per oggi (gira anche via cron ogni giorno alle 8:00)</p>
+              </div>
+            </div>
+            <button
+              onClick={eseguiSeedOggi}
+              disabled={seedRunning}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl transition disabled:opacity-60 disabled:cursor-not-allowed bg-green-600 text-white hover:bg-green-700"
+            >
+              <Sprout className={`w-4 h-4 ${seedRunning ? 'animate-pulse' : ''}`} />
+              {seedRunning ? 'Seed in corso...' : 'Esegui seed oggi'}
+            </button>
+          </div>
+
+          <Terminal lines={seedLog} />
+
+          {seedResult && (
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="bg-slate-50 rounded-lg p-3 border border-slate-100 text-center">
+                <p className="text-[10px] text-slate-500">Prenotazioni</p>
+                <p className="text-lg font-bold text-blue-600">{seedResult.prenotazioni_inserite}</p>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-3 border border-slate-100 text-center">
+                <p className="text-[10px] text-slate-500">No-show</p>
+                <p className="text-lg font-bold text-red-500">{seedResult.no_show_aggiornati}</p>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-3 border border-slate-100 text-center">
+                <p className="text-[10px] text-slate-500">Visite</p>
+                <p className="text-lg font-bold text-orange-600">{seedResult.visite_inserite}</p>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-3 border border-slate-100 text-center">
+                <p className="text-[10px] text-slate-500">Revenue</p>
+                <p className="text-lg font-bold text-green-600">{formatEuro(seedResult.revenue_aggiunto)}</p>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-3 border border-slate-100 text-center">
+                <p className="text-[10px] text-slate-500">Notifiche</p>
+                <p className="text-lg font-bold text-violet-600">{seedResult.notifiche_generate}</p>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Storico ultime esecuzioni</p>
+            {seedHistoryErrore ? (
+              <p className="text-amber-600 text-xs">
+                ⚠️ Prima esegui la migration SQL: <code className="ml-1 bg-amber-50 px-1 rounded">supabase/migrations/20260722_create_cron_runs.sql</code>
+              </p>
+            ) : seedHistory.length === 0 ? (
+              <p className="text-slate-400 text-xs">Nessuna esecuzione registrata ancora</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100">
+                      {['Data', 'Giorno', 'Trigger', 'Prenotazioni', 'No-show', 'Visite', 'Revenue', 'Notifiche'].map(h => (
+                        <th key={h} className="px-3 py-2 text-left text-[10px] uppercase tracking-wide font-medium text-slate-400 whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {seedHistory.map(r => (
+                      <tr key={r.id} className="hover:bg-slate-50 transition">
+                        <td className="px-3 py-2 whitespace-nowrap">{r.data}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{r.giorno_settimana}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${r.trigger === 'manuale' ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-500'}`}>
+                            {r.trigger}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 font-medium text-slate-800">{r.prenotazioni_inserite}</td>
+                        <td className="px-3 py-2">{r.no_show_aggiornati}</td>
+                        <td className="px-3 py-2">{r.visite_inserite}</td>
+                        <td className="px-3 py-2 font-semibold text-green-600">{formatEuro(r.revenue_aggiunto)}</td>
+                        <td className="px-3 py-2">{r.notifiche_generate}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <p className="text-xs text-slate-400">🔒 Sezione auto-seed riservata agli admin</p>
+        </div>
+      )}
 
       {/* Live terminal */}
       <div>

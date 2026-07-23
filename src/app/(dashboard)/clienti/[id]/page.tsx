@@ -1,54 +1,74 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase'
+import { queryDB } from '@/lib/api'
 import { formatDate, formatEuro } from '@/lib/utils'
-import type { Cliente, Animale, Prenotazione, Visita } from '@/types/database'
-import toast from 'react-hot-toast'
+import AllergyBadges from '@/components/AllergyBadges'
+import ClienteFormModal, { type ClienteRecord } from '@/components/ClienteFormModal'
+
+interface ClienteDetail {
+  id: string; nome: string; cognome: string; email: string | null; telefono: string | null
+  tier: string | null; allergie: string | null; preferenze_tavolo: string | null
+  bevande_preferite: string | null; note_cucina: string | null; note_interne: string | null
+  data_nascita: string | null; ultima_visita: string | null; visite_totali: number
+  spesa_totale: number; a_rischio: boolean; attivo: boolean; created_at: string
+  sedi?: { nome: string } | null
+}
+interface AnimaleDetail {
+  id: string; nome: string; razza: string | null; genere: string | null
+  eta_anni: number | null; piatti_preferiti: string | null; note_staff: string | null
+}
+interface PrenotazioneDetail {
+  id: string; data_prenotazione: string; ora_arrivo: string; coperti: number
+  con_animale: boolean; stato: string
+}
+interface VisitaDetail {
+  id: string; data_visita: string; servizio: string; coperti: number
+  importo: number; con_animale: boolean
+}
 
 export default function ClienteDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
-  const [cliente, setCliente] = useState<Cliente | null>(null)
-  const [animali, setAnimali] = useState<Animale[]>([])
-  const [prenotazioni, setPrenotazioni] = useState<Prenotazione[]>([])
-  const [visite, setVisite] = useState<Visita[]>([])
+  const [cliente, setCliente] = useState<ClienteDetail | null>(null)
+  const [animali, setAnimali] = useState<AnimaleDetail[]>([])
+  const [prenotazioni, setPrenotazioni] = useState<PrenotazioneDetail[]>([])
+  const [visite, setVisite] = useState<VisitaDetail[]>([])
   const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(false)
 
-  useEffect(() => {
-    async function load() {
-      const supabase = createClient()
-      const [{ data: c }, { data: a }, { data: p }, { data: v }] = await Promise.all([
-        supabase.from('clienti').select('*').eq('id', id).single(),
-        supabase.from('animali').select('*').eq('cliente_id', id),
-        supabase.from('prenotazioni').select('*').eq('cliente_id', id).order('data_prenotazione', { ascending: false }).limit(10),
-        supabase.from('visite').select('*').eq('cliente_id', id).order('data', { ascending: false }).limit(10),
-      ])
-      if (!c) { router.push('/clienti'); return }
-      setCliente(c)
-      setAnimali(a ?? [])
-      setPrenotazioni(p ?? [])
-      setVisite(v ?? [])
-      setLoading(false)
-    }
-    load()
+  const load = useCallback(async () => {
+    const [c, a, p, v] = await Promise.all([
+      queryDB<ClienteDetail>('clienti', { select: '*,sedi(nome)', filters: [{ fn: 'eq', args: ['id', id] }], limit: 1 }),
+      queryDB<AnimaleDetail>('animali', { filters: [{ fn: 'eq', args: ['cliente_id', id] }] }),
+      queryDB<PrenotazioneDetail>('prenotazioni', {
+        select: 'id,data_prenotazione,ora_arrivo,coperti,con_animale,stato',
+        filters: [{ fn: 'eq', args: ['cliente_id', id] }],
+        order: { col: 'data_prenotazione', asc: false },
+        limit: 10,
+      }),
+      queryDB<VisitaDetail>('visite', {
+        select: 'id,data_visita,servizio,coperti,importo,con_animale',
+        filters: [{ fn: 'eq', args: ['cliente_id', id] }],
+        order: { col: 'data_visita', asc: false },
+        limit: 10,
+      }),
+    ])
+    if (!c[0]) { router.push('/clienti'); return }
+    setCliente(c[0])
+    setAnimali(a)
+    setPrenotazioni(p)
+    setVisite(v)
+    setLoading(false)
   }, [id, router])
 
-  async function toggleVip() {
-    if (!cliente) return
-    const supabase = createClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase.from('clienti') as any).update({ vip: !cliente.vip }).eq('id', id)
-    if (error) { toast.error('Errore aggiornamento'); return }
-    setCliente({ ...cliente, vip: !cliente.vip })
-    toast.success(cliente.vip ? 'VIP rimosso' : 'Cliente promosso a VIP')
-  }
+  useEffect(() => { load() }, [load])
 
   if (loading) return <div className="p-6"><div className="h-8 w-64 bg-slate-200 rounded animate-pulse" /></div>
   if (!cliente) return null
 
-  const totalSpesa = visite.reduce((sum, v) => sum + (v.spesa_totale ?? 0), 0)
+  const totalSpesa = visite.reduce((sum, v) => sum + (v.importo ?? 0), 0)
 
   return (
     <div className="p-6 space-y-6">
@@ -65,10 +85,11 @@ export default function ClienteDetailPage() {
             <h1 className="text-2xl font-bold text-slate-900">{cliente.nome} {cliente.cognome}</h1>
             <p className="text-slate-500 text-sm">Cliente dal {formatDate(cliente.created_at)}</p>
           </div>
-          {cliente.vip && <span className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-sm font-medium">⭐ VIP</span>}
+          {cliente.tier && <span className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-sm font-medium">⭐ {cliente.tier}</span>}
+          {cliente.a_rischio && <span className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-sm font-medium">● a rischio</span>}
         </div>
-        <button onClick={toggleVip} className="px-4 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:border-orange-400 hover:text-orange-500 transition">
-          {cliente.vip ? 'Rimuovi VIP' : 'Promuovi VIP'}
+        <button onClick={() => setEditing(true)} className="px-4 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:border-orange-400 hover:text-orange-500 transition">
+          Modifica cliente
         </button>
       </div>
 
@@ -79,24 +100,37 @@ export default function ClienteDetailPage() {
           <InfoRow label="Email" value={cliente.email ?? '—'} />
           <InfoRow label="Telefono" value={cliente.telefono ?? '—'} />
           <InfoRow label="Data nascita" value={cliente.data_nascita ? formatDate(cliente.data_nascita) : '—'} />
+          <InfoRow label="Sede principale" value={cliente.sedi?.nome ?? '—'} />
           <InfoRow label="Visite totali" value={String(cliente.visite_totali)} />
-          <InfoRow label="Spesa totale" value={formatEuro(totalSpesa)} />
-          {cliente.allergie && cliente.allergie.length > 0 && (
+          <InfoRow label="Spesa totale" value={formatEuro(totalSpesa || cliente.spesa_totale)} />
+          {cliente.allergie && (
             <div>
               <p className="text-xs text-slate-400 mb-1">Allergie</p>
-              <p className="text-sm text-red-600">⚠️ {cliente.allergie.join(', ')}</p>
+              <AllergyBadges value={cliente.allergie} />
             </div>
           )}
-          {cliente.preferenze && (
+          {cliente.preferenze_tavolo && (
             <div>
-              <p className="text-xs text-slate-400 mb-1">Preferenze</p>
-              <p className="text-sm text-slate-700">{cliente.preferenze}</p>
+              <p className="text-xs text-slate-400 mb-1">Preferenze tavolo</p>
+              <p className="text-sm text-slate-700">{cliente.preferenze_tavolo}</p>
             </div>
           )}
-          {cliente.note && (
+          {cliente.bevande_preferite && (
             <div>
-              <p className="text-xs text-slate-400 mb-1">Note</p>
-              <p className="text-sm text-slate-700">{cliente.note}</p>
+              <p className="text-xs text-slate-400 mb-1">Bevande preferite</p>
+              <p className="text-sm text-slate-700">{cliente.bevande_preferite}</p>
+            </div>
+          )}
+          {cliente.note_cucina && (
+            <div>
+              <p className="text-xs text-slate-400 mb-1">Note cucina</p>
+              <p className="text-sm text-slate-700">{cliente.note_cucina}</p>
+            </div>
+          )}
+          {cliente.note_interne && (
+            <div>
+              <p className="text-xs text-slate-400 mb-1">Note interne</p>
+              <p className="text-sm text-slate-700">{cliente.note_interne}</p>
             </div>
           )}
         </div>
@@ -111,8 +145,8 @@ export default function ClienteDetailPage() {
               <span className="text-2xl">🐶</span>
               <div>
                 <p className="font-medium text-slate-800">{a.nome}</p>
-                <p className="text-xs text-slate-400">{a.razza ?? 'Razza non specificata'} · Taglia {a.taglia}</p>
-                {a.note && <p className="text-xs text-slate-500 mt-0.5">{a.note}</p>}
+                <p className="text-xs text-slate-400">{a.razza ?? 'Razza non specificata'}{a.eta_anni != null ? ` · ${a.eta_anni} anni` : ''}</p>
+                {a.note_staff && <p className="text-xs text-slate-500 mt-0.5">{a.note_staff}</p>}
               </div>
             </div>
           ))}
@@ -126,10 +160,10 @@ export default function ClienteDetailPage() {
           ) : visite.map((v) => (
             <div key={v.id} className="py-2.5 border-b border-slate-50 last:border-0">
               <div className="flex justify-between">
-                <p className="text-sm font-medium text-slate-800">{formatDate(v.data)}</p>
-                <p className="text-sm font-semibold text-orange-600">{formatEuro(v.spesa_totale)}</p>
+                <p className="text-sm font-medium text-slate-800">{formatDate(v.data_visita)}</p>
+                <p className="text-sm font-semibold text-orange-600">{formatEuro(v.importo)}</p>
               </div>
-              <p className="text-xs text-slate-400">{v.persone} persone {v.animali > 0 ? `· ${v.animali} 🐕` : ''}</p>
+              <p className="text-xs text-slate-400">{v.coperti} persone · {v.servizio}{v.con_animale ? ' · 🐕' : ''}</p>
             </div>
           ))}
         </div>
@@ -165,6 +199,14 @@ export default function ClienteDetailPage() {
           </table>
         </div>
       </div>
+
+      {editing && (
+        <ClienteFormModal
+          cliente={cliente as unknown as ClienteRecord}
+          onClose={() => setEditing(false)}
+          onSaved={load}
+        />
+      )}
     </div>
   )
 }

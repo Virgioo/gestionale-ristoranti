@@ -2,12 +2,14 @@
 
 import { useState } from 'react'
 import type { Sede } from '@/types/database'
+import AllergenSelector from './AllergenSelector'
+import { stringifyAllergie } from '@/lib/allergeni'
 
 function todayISO() {
   return new Date().toISOString().split('T')[0]
 }
 
-export default function PrenotaForm({ sede }: { sede: Sede }) {
+export default function PrenotaForm({ sede, compact }: { sede: Sede; compact?: boolean }) {
   const [inviata, setInviata] = useState(false)
   const [inviando, setInviando] = useState(false)
   const [errore, setErrore] = useState<string | null>(null)
@@ -21,7 +23,7 @@ export default function PrenotaForm({ sede }: { sede: Sede }) {
   const [ora, setOra] = useState('20:00')
   const [coperti, setCoperti] = useState(2)
   const [conAnimale, setConAnimale] = useState(false)
-  const [allergie, setAllergie] = useState('')
+  const [allergie, setAllergie] = useState<string[]>([])
   const [occasione, setOccasione] = useState('')
   const [note, setNote] = useState('')
 
@@ -40,7 +42,8 @@ export default function PrenotaForm({ sede }: { sede: Sede }) {
           nome, telefono, email: email.trim() || undefined,
           data, ora, coperti,
           con_animale: conAnimale,
-          allergie, occasione, note,
+          allergie: stringifyAllergie(allergie) ?? undefined,
+          occasione, note,
         }),
       })
       const json = await res.json()
@@ -57,7 +60,7 @@ export default function PrenotaForm({ sede }: { sede: Sede }) {
 
   function reset() {
     setInviata(false); setNumero(null); setEmailInviata(false)
-    setNome(''); setTelefono(''); setEmail(''); setNote(''); setAllergie(''); setOccasione('')
+    setNome(''); setTelefono(''); setEmail(''); setNote(''); setAllergie([]); setOccasione('')
     setConAnimale(false); setCoperti(2)
   }
 
@@ -132,11 +135,7 @@ export default function PrenotaForm({ sede }: { sede: Sede }) {
         Verrò con il mio cane 🐕
       </label>
 
-      <div>
-        <label className="text-xs font-medium text-slate-600">Allergie o intolleranze da comunicare</label>
-        <input value={allergie} onChange={e => setAllergie(e.target.value)}
-          className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2" />
-      </div>
+      <AllergenSelector value={allergie} onChange={setAllergie} compact={compact} />
 
       <div>
         <label className="text-xs font-medium text-slate-600">Occasione speciale</label>

@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { queryDB } from '@/lib/api'
+import AllergyBadges from '@/components/AllergyBadges'
+import ClienteFormModal, { type ClienteRecord } from '@/components/ClienteFormModal'
 
 interface PrenStat { nome_ospite: string; stato: string }
 
@@ -79,6 +81,8 @@ export default function ClientiPage() {
   const [search, setSearch] = useState('')
   const [filtroTier, setFiltroTier] = useState<string>('tutti')
   const [prenStats, setPrenStats] = useState<Record<string, { tot: number; ns: number }>>({})
+  const [modalCliente, setModalCliente] = useState<ClienteRecord | null | undefined>(undefined)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     queryDB<PrenStat>('prenotazioni', {
@@ -112,7 +116,12 @@ export default function ClientiPage() {
       setLoading(false)
     }, 300)
     return () => clearTimeout(t)
-  }, [search, filtroTier])
+  }, [search, filtroTier, refreshKey])
+
+  async function apriModifica(id: string) {
+    const rows = await queryDB<ClienteRecord>('clienti', { filters: [{ fn: 'eq', args: ['id', id] }], limit: 1 })
+    if (rows[0]) setModalCliente(rows[0])
+  }
 
   const tierOptions = ['tutti', 'Diamante', 'Platinum', 'Gold']
 
@@ -123,6 +132,12 @@ export default function ClientiPage() {
           <h1 className="text-base font-semibold text-slate-900">Clienti</h1>
           <p className="text-xs text-slate-500">{clienti.length} clienti trovati</p>
         </div>
+        <button
+          onClick={() => setModalCliente(null)}
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-orange-500 text-white hover:bg-orange-600 transition"
+        >
+          + Nuovo cliente
+        </button>
       </div>
 
       {/* Filtri */}
@@ -191,7 +206,7 @@ export default function ClientiPage() {
                       <div>
                         <p className="font-medium text-slate-900">{c.nome} {c.cognome}</p>
                         {c.allergie && (
-                          <p className="text-[10px] text-red-500">⚠️ {c.allergie}</p>
+                          <div className="mt-0.5"><AllergyBadges value={c.allergie} size="sm" /></div>
                         )}
                         {c.a_rischio && (
                           <p className="text-[10px] text-amber-600">● a rischio</p>
@@ -216,9 +231,14 @@ export default function ClientiPage() {
                   <td className="px-4 py-2.5 text-slate-700">{euro(c.spesa_totale)}</td>
                   <td className="px-4 py-2.5 text-slate-500">{fmtDate(c.ultima_visita)}</td>
                   <td className="px-4 py-2.5">
-                    <Link href={`/clienti/${c.id}`} className="text-orange-500 hover:text-orange-600 font-medium">
-                      Dettaglio →
-                    </Link>
+                    <div className="flex items-center gap-3 whitespace-nowrap">
+                      <button onClick={() => apriModifica(c.id)} className="text-slate-500 hover:text-orange-600 font-medium">
+                        Modifica
+                      </button>
+                      <Link href={`/clienti/${c.id}`} className="text-orange-500 hover:text-orange-600 font-medium">
+                        Dettaglio →
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -226,6 +246,14 @@ export default function ClientiPage() {
           </table>
         </div>
       </div>
+
+      {modalCliente !== undefined && (
+        <ClienteFormModal
+          cliente={modalCliente}
+          onClose={() => setModalCliente(undefined)}
+          onSaved={() => setRefreshKey(k => k + 1)}
+        />
+      )}
     </div>
   )
 }

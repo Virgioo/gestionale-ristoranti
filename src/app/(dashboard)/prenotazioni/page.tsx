@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { queryDB, updateDB } from '@/lib/api'
 import toast from 'react-hot-toast'
+import AllergyBadges from '@/components/AllergyBadges'
 
 interface PrenStatRow { nome_ospite: string; stato: string }
 
@@ -200,7 +201,7 @@ export default function PrenotazioniPage() {
                   <td className="px-4 py-2.5 text-slate-600">{p.tipo_tavolo ?? '—'}</td>
                   <td className="px-4 py-2.5 text-slate-500 max-w-[200px]">
                     {p.allergie_comunicare && (
-                      <p className="text-red-500 font-medium">⚠️ {p.allergie_comunicare}</p>
+                      <div className="mb-0.5"><AllergyBadges value={p.allergie_comunicare} /></div>
                     )}
                     {p.occasione_speciale && (
                       <p className="text-purple-600">🎉 {p.occasione_speciale}</p>

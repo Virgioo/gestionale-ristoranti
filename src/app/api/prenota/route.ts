@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest } from 'next/server'
 import { Resend } from 'resend'
+import { parseAllergie, allergeneLabel } from '@/lib/allergeni'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,13 +27,17 @@ interface PrenotaBody {
 
 function emailHtml(opts: {
   sede: { nome: string; telefono: string | null; email: string | null }
-  nome: string; data: string; ora: string; coperti: number; numero: string
+  nome: string; data: string; ora: string; coperti: number; numero: string; allergie?: string | null
 }) {
-  const { sede, nome, data, ora, coperti, numero } = opts
+  const { sede, nome, data, ora, coperti, numero, allergie } = opts
   const dataFmt = new Date(data + 'T00:00:00').toLocaleDateString('it-IT', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   })
   const contatti = [sede.telefono, sede.email].filter(Boolean).join(' · ')
+  const allergieKeys = parseAllergie(allergie)
+  const allergieRow = allergieKeys.length
+    ? `<tr><td style="padding:6px 0;color:#64748b">Allergie comunicate</td><td style="padding:6px 0;text-align:right"><strong>${allergieKeys.map(allergeneLabel).join(', ')}</strong></td></tr>`
+    : ''
   return `
   <div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1e293b">
     <div style="background:#f97316;color:#fff;padding:24px;border-radius:12px 12px 0 0;text-align:center">
@@ -47,6 +52,7 @@ function emailHtml(opts: {
         <tr><td style="padding:6px 0;color:#64748b">Data</td><td style="padding:6px 0;text-align:right"><strong>${dataFmt}</strong></td></tr>
         <tr><td style="padding:6px 0;color:#64748b">Ora</td><td style="padding:6px 0;text-align:right"><strong>${ora.slice(0, 5)}</strong></td></tr>
         <tr><td style="padding:6px 0;color:#64748b">Persone</td><td style="padding:6px 0;text-align:right"><strong>${coperti}</strong></td></tr>
+        ${allergieRow}
       </table>
       <p style="font-size:13px;color:#64748b">Per modifiche o cancellazioni contattaci: <strong>${contatti || 'vedi sito'}</strong> citando il numero di prenotazione.</p>
     </div>
@@ -101,7 +107,7 @@ export async function POST(req: NextRequest) {
           from: process.env.RESEND_FROM_EMAIL || 'Prenotazioni <onboarding@resend.dev>',
           to: emailCliente,
           subject: `Richiesta prenotazione ${sede.nome} — n. ${numero}`,
-          html: emailHtml({ sede, nome, data: body.data, ora: body.ora, coperti, numero }),
+          html: emailHtml({ sede, nome, data: body.data, ora: body.ora, coperti, numero, allergie: body.allergie }),
         })
         emailInviata = !mailErr
       } catch {}

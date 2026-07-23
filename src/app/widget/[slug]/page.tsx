@@ -43,7 +43,7 @@ export default function WidgetPage() {
 
   return (
     <div className="p-4 bg-white">
-      <PrenotaForm sede={sede} />
+      <PrenotaForm sede={sede} compact />
     </div>
   )
 }
