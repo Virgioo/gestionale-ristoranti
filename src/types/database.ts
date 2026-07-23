@@ -28,7 +28,7 @@ interface PrenotazioneRow {
   id: string; sede_id: string; cliente_id: string | null
   nome_ospite: string; telefono_ospite: string | null
   data_prenotazione: string; ora_arrivo: string; coperti: number
-  tipo_tavolo: string | null
+  tipo_tavolo: string | null; tavolo_id: string | null
   stato: 'confermata' | 'in_attesa' | 'cancellata' | 'completata' | 'no_show'
   note_speciali: string | null; allergie_comunicare: string | null
   con_animale: boolean; animale_id: string | null

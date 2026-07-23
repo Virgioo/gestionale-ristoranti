@@ -1,13 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Sede } from '@/types/database'
 import AllergenSelector from './AllergenSelector'
 import { stringifyAllergie } from '@/lib/allergeni'
+import { queryDB } from '@/lib/api'
 
 function todayISO() {
   return new Date().toISOString().split('T')[0]
 }
+
+interface SalaOpt { id: string; nome: string }
+interface TavoloOpt { id: string; nome: string; capienza: number }
 
 export default function PrenotaForm({ sede, compact }: { sede: Sede; compact?: boolean }) {
   const [inviata, setInviata] = useState(false)
@@ -27,7 +31,42 @@ export default function PrenotaForm({ sede, compact }: { sede: Sede; compact?: b
   const [occasione, setOccasione] = useState('')
   const [note, setNote] = useState('')
 
+  const [sale, setSale] = useState<SalaOpt[]>([])
+  const [zonaId, setZonaId] = useState('')
+  const [tavoli, setTavoli] = useState<TavoloOpt[]>([])
+  const [tavoloId, setTavoloId] = useState('')
+  const [tavoliOccupati, setTavoliOccupati] = useState<Set<string>>(new Set())
+
   const accent = sede.colore_hex || '#f97316'
+
+  // Zone/sale disponibili per questa sede (opzionale, il cliente può non scegliere)
+  useEffect(() => {
+    queryDB<SalaOpt>('sale', { select: 'id,nome', filters: [{ fn: 'eq', args: ['sede_id', sede.id] }], order: { col: 'ordine' } })
+      .then(setSale).catch(() => setSale([]))
+  }, [sede.id])
+
+  // Tavoli della zona scelta
+  useEffect(() => {
+    setTavoloId('')
+    if (!zonaId) { setTavoli([]); return }
+    queryDB<TavoloOpt>('tavoli', { select: 'id,nome,capienza', filters: [{ fn: 'eq', args: ['sala_id', zonaId] }] })
+      .then(setTavoli).catch(() => setTavoli([]))
+  }, [zonaId])
+
+  // Tavoli già occupati per data/ora scelte, per segnalarli come non disponibili
+  useEffect(() => {
+    if (!zonaId || !data || !ora) { setTavoliOccupati(new Set()); return }
+    queryDB<{ tavolo_id: string }>('prenotazioni', {
+      select: 'tavolo_id',
+      filters: [
+        { fn: 'eq', args: ['sede_id', sede.id] },
+        { fn: 'eq', args: ['data_prenotazione', data] },
+        { fn: 'eq', args: ['ora_arrivo', ora] },
+        { fn: 'not', args: ['tavolo_id', 'is', null] },
+        { fn: 'neq', args: ['stato', 'cancellata'] },
+      ],
+    }).then(rows => setTavoliOccupati(new Set(rows.map(r => r.tavolo_id)))).catch(() => setTavoliOccupati(new Set()))
+  }, [sede.id, zonaId, data, ora])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -44,6 +83,8 @@ export default function PrenotaForm({ sede, compact }: { sede: Sede; compact?: b
           con_animale: conAnimale,
           allergie: stringifyAllergie(allergie) ?? undefined,
           occasione, note,
+          zona: sale.find(s => s.id === zonaId)?.nome,
+          tavolo_id: tavoloId || undefined,
         }),
       })
       const json = await res.json()
@@ -61,7 +102,7 @@ export default function PrenotaForm({ sede, compact }: { sede: Sede; compact?: b
   function reset() {
     setInviata(false); setNumero(null); setEmailInviata(false)
     setNome(''); setTelefono(''); setEmail(''); setNote(''); setAllergie([]); setOccasione('')
-    setConAnimale(false); setCoperti(2)
+    setConAnimale(false); setCoperti(2); setZonaId(''); setTavoloId('')
   }
 
   if (inviata) {
@@ -134,6 +175,32 @@ export default function PrenotaForm({ sede, compact }: { sede: Sede; compact?: b
         <input type="checkbox" checked={conAnimale} onChange={e => setConAnimale(e.target.checked)} className="rounded" />
         Verrò con il mio cane 🐕
       </label>
+
+      {sale.length > 0 && (
+        <div>
+          <label className="text-xs font-medium text-slate-600">Zona preferita <span className="text-slate-400">(opzionale)</span></label>
+          <select value={zonaId} onChange={e => setZonaId(e.target.value)}
+            className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 bg-white">
+            <option value="">Nessuna preferenza</option>
+            {sale.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+          </select>
+        </div>
+      )}
+
+      {zonaId && tavoli.length > 0 && (
+        <div>
+          <label className="text-xs font-medium text-slate-600">Tavolo preferito <span className="text-slate-400">(opzionale, se libero)</span></label>
+          <select value={tavoloId} onChange={e => setTavoloId(e.target.value)}
+            className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 bg-white">
+            <option value="">Nessuna preferenza</option>
+            {tavoli.map(t => (
+              <option key={t.id} value={t.id} disabled={tavoliOccupati.has(t.id)}>
+                {t.nome} ({t.capienza} posti){tavoliOccupati.has(t.id) ? ' — non disponibile' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <AllergenSelector value={allergie} onChange={setAllergie} compact={compact} />
 

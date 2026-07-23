@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { queryDB, updateDB } from '@/lib/api'
+import { useRealtimeTable } from '@/hooks/useRealtimeTable'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface RigaDB {
@@ -521,6 +522,9 @@ export default function CucinaPage() {
   }, [])
 
   useEffect(() => { fetchData(); const id = setInterval(fetchData, 10_000); return () => clearInterval(id) }, [fetchData])
+
+  // realtime: nuove comande appaiono istantaneamente invece di aspettare il polling da 10s
+  useRealtimeTable('cucina-comande', 'comande', () => { fetchData() })
 
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current)

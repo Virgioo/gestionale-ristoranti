@@ -3,9 +3,11 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   LayoutGrid, Plus, Save, RefreshCw, Settings, Eye, ChevronDown,
-  X, RotateCcw, Copy, Trash2, Accessibility, Clock, PenTool, Check,
+  X, RotateCcw, Copy, Trash2, Accessibility, Clock, PenTool, Check, Sparkles,
 } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { queryDB, insertDB, deleteDB, updateDB, upsertDB } from '@/lib/api'
+import { useRealtimeTable } from '@/hooks/useRealtimeTable'
 
 // ─────────────────────────────────────── TYPES
 type Forma      = 'rettangolare' | 'rotondo' | 'ovale' | 'quadrato'
@@ -13,7 +15,7 @@ type Stato      = 'libero' | 'occupato' | 'prenotato' | 'conto' | 'bloccato' | '
 type EditorTool = 'select' | 'drawSala'
 
 interface Pt     { x: number; y: number }
-interface Sede   { id: string; nome: string; citta: string }
+interface Sede   { id: string; nome: string; citta: string; tipo: string | null; coperti_totali: number | null }
 interface Sala   {
   id: string; nome: string; sede_id: string; ordine: number
   colore: string; note: string | null
@@ -507,6 +509,7 @@ export default function TavoliPage() {
   const [mousePos, setMousePos]   = useState<Pt | null>(null)
   const [now, setNow]             = useState(Date.now())
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  const [generandoAI, setGenerandoAI] = useState(false)
 
   // refs
   const canvasRef   = useRef<HTMLDivElement>(null)
@@ -533,7 +536,7 @@ export default function TavoliPage() {
 
   // ── load sedi
   useEffect(() => {
-    queryDB<Sede>('sedi', { select: 'id,nome,citta', order: { col: 'nome' } })
+    queryDB<Sede>('sedi', { select: 'id,nome,citta,tipo,coperti_totali', order: { col: 'nome' } })
       .then(r => { setSedi(r); if (r[0]) setSedeId(r[0].id) })
       .catch(() => setError('Errore caricamento sedi'))
   }, [])
@@ -573,13 +576,27 @@ export default function TavoliPage() {
     setStatiMap(m); setLastRefresh(new Date())
   }
 
-  // ── auto-refresh
+  // ── auto-refresh (fallback se il realtime dovesse perdere un evento)
   useEffect(() => {
     if (mode !== 'operativo' || !tavoli.length) return
     const iv = setInterval(() => loadStati(tavoliRef.current.map(t => t.id)), 30_000)
     return () => clearInterval(iv)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, tavoli.length])
+
+  // ── realtime: stato aggiornato istantaneamente quando un cameriere agisce da /comande
+  useRealtimeTable('tavoli-stato', 'stato_tavoli', (payload) => {
+    if (payload.eventType === 'DELETE') {
+      const oldRow = payload.old as { tavolo_id?: string }
+      if (!oldRow?.tavolo_id) return
+      setStatiMap(prev => { const n = { ...prev }; delete n[oldRow.tavolo_id!]; return n })
+      return
+    }
+    const row = payload.new as unknown as StatoTavolo
+    if (!row?.tavolo_id) return
+    setStatiMap(prev => ({ ...prev, [row.tavolo_id]: row }))
+    setLastRefresh(new Date())
+  })
 
   // ── window mouse events (all dragging)
   useEffect(() => {
@@ -754,6 +771,56 @@ export default function TavoliPage() {
     finally { setSaving(false) }
   }
 
+  async function generaConAI() {
+    const sedeSelCorrente = sedi.find(s => s.id === sedeId)
+    if (!sedeSelCorrente) return
+    if (sale.length === 0) { setError('Crea prima almeno una sala per generare la disposizione con AI'); return }
+
+    setGenerandoAI(true)
+    try {
+      const esistenti = await queryDB<{ sala_id: string }>('tavoli', {
+        select: 'sala_id',
+        filters: [{ fn: 'in', args: ['sala_id', sale.map(s => s.id)] }],
+      })
+      const occupate = new Set(esistenti.map(e => e.sala_id))
+      const saleVuote = sale.filter(s => !occupate.has(s.id))
+      if (saleVuote.length === 0) {
+        toast.error('Tutte le sale hanno già dei tavoli: eliminali prima di rigenerare con AI')
+        return
+      }
+
+      const res = await fetch('/api/tavoli/genera-layout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sede: { nome: sedeSelCorrente.nome, tipo: sedeSelCorrente.tipo, coperti_totali: sedeSelCorrente.coperti_totali },
+          sale: saleVuote.map(s => ({ id: s.id, nome: s.nome })),
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Errore generazione')
+      const nuovi = json.tavoli as Array<Record<string, unknown> & { sala_id: string }>
+      if (!nuovi?.length) throw new Error('Nessun tavolo generato')
+
+      await insertDB('tavoli', nuovi)
+
+      if (saleVuote.some(s => s.id === salaId)) {
+        const r = await queryDB<Tavolo>('tavoli', {
+          select: 'id,sala_id,nome,forma,capienza,capienza_min,capienza_max,capienza_evento,pos_x,pos_y,larghezza,altezza,rotazione,note,accessibile,nome_cameriere,unione_gruppo',
+          filters: [{ fn: 'eq', args: ['sala_id', salaId] }],
+        })
+        setTavoli(r)
+      }
+
+      const saltate = sale.length - saleVuote.length
+      toast.success(`✨ ${nuovi.length} tavoli generati in ${saleVuote.length} sala/e${saltate > 0 ? ` (${saltate} già occupata/e, saltata/e)` : ''}`)
+    } catch (err) {
+      toast.error('Errore generazione AI: ' + (err as Error).message)
+    } finally {
+      setGenerandoAI(false)
+    }
+  }
+
   async function updateStato(tavoloId: string, stato: Stato, note: string, coperti: number|null, cam: string, apri: boolean) {
     const existing = statiMap[tavoloId]
     const payload: Record<string, unknown> = {
@@ -877,6 +944,12 @@ export default function TavoliPage() {
                 <button onClick={() => setShowAddT(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition">
                   <Plus className="w-3.5 h-3.5" /> Tavolo
+                </button>
+                <button onClick={generaConAI} disabled={generandoAI}
+                  title="Genera automaticamente una disposizione di partenza in base ai coperti della sede — puoi modificare tutto dopo"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition disabled:opacity-60 disabled:cursor-not-allowed">
+                  <Sparkles className={`w-3.5 h-3.5 ${generandoAI ? 'animate-pulse' : ''}`} />
+                  {generandoAI ? 'Generazione...' : 'Genera con AI'}
                 </button>
                 <button onClick={saveLayout} disabled={!dirty || saving}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition disabled:opacity-40 disabled:cursor-not-allowed">

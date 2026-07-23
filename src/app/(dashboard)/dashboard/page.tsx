@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase'
 import { queryDB, countDB } from '@/lib/api'
 import { isAdmin } from '@/lib/roles'
 import { formatEuro } from '@/lib/utils'
+import { useRealtimeTable } from '@/hooks/useRealtimeTable'
 import type { User } from '@supabase/supabase-js'
 import {
   TrendingUp, TrendingDown, Users, CalendarCheck, Euro, Bell,
@@ -92,8 +93,7 @@ export default function DashboardPage() {
   }, [])
 
   /* Metriche base */
-  useEffect(() => {
-    async function load() {
+  const loadBase = useCallback(async () => {
       const oggi = new Date().toISOString().split('T')[0]
       const ieri = new Date(Date.now() - 86_400_000).toISOString().split('T')[0]
       const [mStart, mEnd] = monthRange(0)
@@ -127,9 +127,12 @@ export default function DashboardPage() {
       setStats({ prenOggi, prenIeri, clienti, revMese: sum(visiteM), revMesePre: sum(visiteMp), nonLette })
       setPrenotazioni(pren)
       setNotifiche(notif)
-    }
-    load()
   }, [])
+
+  useEffect(() => { loadBase() }, [loadBase])
+
+  // realtime: il contatore "Prenotazioni oggi" si aggiorna live quando arriva una nuova prenotazione
+  useRealtimeTable('dashboard-prenotazioni', 'prenotazioni', () => { loadBase() })
 
   /* Metriche admin */
   useEffect(() => {

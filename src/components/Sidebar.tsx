@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { useAppStore } from '@/store'
 import { createClient } from '@/lib/supabase'
 import { countDB } from '@/lib/api'
+import { useRealtimeTable } from '@/hooks/useRealtimeTable'
 import toast from 'react-hot-toast'
 import {
   LayoutDashboard, Users, CalendarDays, TrendingUp,
@@ -39,7 +40,7 @@ const NAV_ADMIN = [
 export default function Sidebar() {
   const pathname  = usePathname()
   const router    = useRouter()
-  const { sidebarCollapsed, toggleSidebar, unreadCount } = useAppStore()
+  const { sidebarCollapsed, toggleSidebar, unreadCount, setUnreadCount } = useAppStore()
   const [occupiedTavoli, setOccupiedTavoli] = useState(0)
   const [adminUser,      setAdminUser]      = useState(false)
 
@@ -54,6 +55,26 @@ export default function Sidebar() {
     const id = setInterval(fetchOccupied, 30_000)
     return () => clearInterval(id)
   }, [])
+
+  // realtime: tavoli occupati aggiornati istantaneamente quando cambia uno stato
+  useRealtimeTable('sidebar-stato-tavoli', 'stato_tavoli', async () => {
+    try {
+      const n = await countDB('stato_tavoli', [{ fn: 'eq', args: ['stato', 'occupato'] }])
+      setOccupiedTavoli(n)
+    } catch {}
+  })
+
+  // notifiche non lette: valore iniziale (lo store non lo persiste) + aggiornamento realtime
+  useEffect(() => {
+    async function fetchUnread() {
+      try { setUnreadCount(await countDB('notifiche', [{ fn: 'eq', args: ['letta', false] }])) } catch {}
+    }
+    fetchUnread()
+  }, [setUnreadCount])
+
+  useRealtimeTable('sidebar-notifiche', 'notifiche', async () => {
+    try { setUnreadCount(await countDB('notifiche', [{ fn: 'eq', args: ['letta', false] }])) } catch {}
+  })
 
   useEffect(() => {
     createClient().auth.getUser().then(({ data }) => setAdminUser(isAdmin(data?.user ?? null)))

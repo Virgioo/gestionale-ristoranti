@@ -23,6 +23,8 @@ interface PrenotaBody {
   allergie?: string
   occasione?: string
   note?: string
+  zona?: string
+  tavolo_id?: string
 }
 
 function emailHtml(opts: {
@@ -77,7 +79,19 @@ export async function POST(req: NextRequest) {
     const sede = sedi?.[0]
     if (!sede) return Response.json({ error: 'Sede non trovata' }, { status: 404 })
 
-    const { data: rows, error } = await admin.from('prenotazioni').insert({
+    // Il tavolo scelto dal cliente è solo una preferenza: valida che appartenga davvero
+    // a questa sede prima di salvarlo, altrimenti lo ignora silenziosamente.
+    let tavoloId: string | null = null
+    if (body.tavolo_id) {
+      const { data: tavoloRows } = await admin
+        .from('tavoli').select('id,sala_id,sale(sede_id)')
+        .eq('id', body.tavolo_id).limit(1)
+      const tavolo = tavoloRows?.[0] as { id: string; sale: { sede_id: string } | { sede_id: string }[] | null } | undefined
+      const saleSedeId = Array.isArray(tavolo?.sale) ? tavolo?.sale[0]?.sede_id : tavolo?.sale?.sede_id
+      if (saleSedeId === sede.id) tavoloId = body.tavolo_id
+    }
+
+    const prenotazioneBase = {
       sede_id: sede.id,
       nome_ospite: nome,
       telefono_ospite: body.telefono.trim(),
@@ -88,9 +102,19 @@ export async function POST(req: NextRequest) {
       allergie_comunicare: body.allergie?.trim() || null,
       occasione_speciale: body.occasione?.trim() || null,
       note_speciali: body.note?.trim() || null,
+      tipo_tavolo: body.zona?.trim() || null,
       stato: 'in_attesa',
       origine: 'web',
-    }).select('id')
+    }
+
+    let { data: rows, error } = await admin.from('prenotazioni')
+      .insert({ ...prenotazioneBase, tavolo_id: tavoloId }).select('id')
+
+    // Retro-compatibilità: se la migration che aggiunge tavolo_id non è ancora stata
+    // eseguita su questo DB, la prenotazione resta comunque valida senza tavolo assegnato.
+    if (error?.message?.includes('tavolo_id')) {
+      ({ data: rows, error } = await admin.from('prenotazioni').insert(prenotazioneBase).select('id'))
+    }
     if (error || !rows?.[0]) {
       return Response.json({ error: error?.message ?? 'Errore inserimento' }, { status: 400 })
     }
