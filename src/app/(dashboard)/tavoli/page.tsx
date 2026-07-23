@@ -866,6 +866,15 @@ export default function TavoliPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {mode === 'editor' && (
+            <button onClick={generaConAI} disabled={generandoAI}
+              title="Analizza coperti, tipo sede e sale esistenti, e propone una disposizione di partenza — puoi modificare tutto dopo"
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white rounded-xl shadow-sm transition disabled:opacity-60 disabled:cursor-not-allowed"
+              style={{ background: generandoAI ? '#6d28d9' : 'linear-gradient(135deg,#8b5cf6,#7c3aed)' }}>
+              <Sparkles className={`w-4 h-4 ${generandoAI ? 'animate-spin' : ''}`} />
+              {generandoAI ? 'Generazione in corso...' : '✨ Genera disposizione con AI'}
+            </button>
+          )}
           <div className="flex bg-slate-100 rounded-xl p-1">
             {([['editor','Editor',Settings],['operativo','Operativo',Eye]] as const).map(([m,lbl,Icon]) => (
               <button key={m} onClick={() => { setMode(m as 'editor'|'operativo'); setTool('select') }}
@@ -944,12 +953,6 @@ export default function TavoliPage() {
                 <button onClick={() => setShowAddT(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition">
                   <Plus className="w-3.5 h-3.5" /> Tavolo
-                </button>
-                <button onClick={generaConAI} disabled={generandoAI}
-                  title="Genera automaticamente una disposizione di partenza in base ai coperti della sede — puoi modificare tutto dopo"
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition disabled:opacity-60 disabled:cursor-not-allowed">
-                  <Sparkles className={`w-3.5 h-3.5 ${generandoAI ? 'animate-pulse' : ''}`} />
-                  {generandoAI ? 'Generazione...' : 'Genera con AI'}
                 </button>
                 <button onClick={saveLayout} disabled={!dirty || saving}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition disabled:opacity-40 disabled:cursor-not-allowed">
