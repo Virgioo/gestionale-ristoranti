@@ -9,6 +9,7 @@ import toast from 'react-hot-toast'
 import { queryDB, insertDB, deleteDB, updateDB, upsertDB } from '@/lib/api'
 import { useRealtimeTable } from '@/hooks/useRealtimeTable'
 import GeneraAIFormModal, { type AIFormValues } from '@/components/GeneraAIFormModal'
+import { ultimaConfigurazione, configurazioneSuggerita, registraGenerazione } from '@/lib/tavoliAiPrefs'
 
 // ─────────────────────────────────────── TYPES
 type Forma      = 'rettangolare' | 'rotondo' | 'ovale' | 'quadrato'
@@ -37,6 +38,21 @@ interface TavoloProposto {
   nome: string; forma: string; capienza: number
   larghezza: number; altezza: number; pos_x: number; pos_y: number; rotazione: number
   note: string | null
+}
+
+const FORME_VALIDE: Forma[] = ['rettangolare', 'rotondo', 'ovale', 'quadrato']
+
+/** Converte un tavolo proposto dall'AI in un Tavolo completo (id sintetico, non
+ *  ancora salvato) così può passare per lo stesso identico rendering/drag/pannello
+ *  proprietà dei tavoli reali — l'anteprima resta quindi modificabile prima di salvare. */
+function previewToTavolo(p: TavoloProposto, index: number, salaId: string): Tavolo {
+  return {
+    id: `ai-preview-${index}`, sala_id: salaId, nome: p.nome,
+    forma: FORME_VALIDE.includes(p.forma as Forma) ? (p.forma as Forma) : 'rettangolare',
+    capienza: p.capienza, capienza_min: null, capienza_max: null, capienza_evento: null,
+    pos_x: p.pos_x, pos_y: p.pos_y, larghezza: p.larghezza, altezza: p.altezza, rotazione: p.rotazione,
+    note: p.note, accessibile: false, nome_cameriere: null, unione_gruppo: null,
+  }
 }
 
 // ─────────────────────────────────────── CONSTANTS
@@ -71,9 +87,9 @@ function defaultAltezza(forma: Forma, larghezza: number): number {
 }
 
 // ─────────────────────────────────────── TAVOLO SHAPE
-function TavoloShape({ t, st, mode, selected, isUnito, timerStr, onMouseDown, onClick, onRotateStart, divRef }: {
+function TavoloShape({ t, st, mode, selected, isUnito, timerStr, preview, onMouseDown, onClick, onRotateStart, divRef }: {
   t: Tavolo; st: StatoTavolo | null; mode: 'editor' | 'operativo'
-  selected: boolean; isUnito: boolean; timerStr: string | null
+  selected: boolean; isUnito: boolean; timerStr: string | null; preview?: boolean
   onMouseDown?: (e: React.MouseEvent) => void; onClick?: () => void
   onRotateStart?: (e: React.MouseEvent) => void; divRef?: (el: HTMLDivElement | null) => void
 }) {
@@ -84,10 +100,11 @@ function TavoloShape({ t, st, mode, selected, isUnito, timerStr, onMouseDown, on
   const h      = t.forma === 'rotondo' || t.forma === 'quadrato' ? t.larghezza : t.altezza
   const brad   = isCirc ? '50%' : 8
 
-  const bgColor = mode === 'operativo' ? cfg.bg : (selected ? '#fff7ed' : '#ffffff')
-  const border  = `2px ${isUnito ? 'dashed' : 'solid'} ${
-    mode === 'editor' ? (selected ? '#f97316' : '#94a3b8') : cfg.border}`
-  const shadow  = selected ? '0 0 0 3px rgba(249,115,22,0.3), 0 4px 12px rgba(0,0,0,0.1)' : '0 1px 4px rgba(0,0,0,0.06)'
+  const bgColor = preview ? '#f5f3ff' : mode === 'operativo' ? cfg.bg : (selected ? '#fff7ed' : '#ffffff')
+  const border  = preview
+    ? `2px dashed ${selected ? '#7c3aed' : '#a78bfa'}`
+    : `2px ${isUnito ? 'dashed' : 'solid'} ${mode === 'editor' ? (selected ? '#f97316' : '#94a3b8') : cfg.border}`
+  const shadow  = selected ? `0 0 0 3px ${preview ? 'rgba(124,58,237,0.3)' : 'rgba(249,115,22,0.3)'}, 0 4px 12px rgba(0,0,0,0.1)` : '0 1px 4px rgba(0,0,0,0.06)'
 
   return (
     <div
@@ -121,7 +138,7 @@ function TavoloShape({ t, st, mode, selected, isUnito, timerStr, onMouseDown, on
         </>
       )}
 
-      <span style={{ fontSize: 11, fontWeight: 700, color: mode === 'operativo' ? cfg.fg : '#1e293b', lineHeight: 1.2, padding: '0 4px', textAlign: 'center', wordBreak: 'break-word' }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: preview ? '#5b21b6' : mode === 'operativo' ? cfg.fg : '#1e293b', lineHeight: 1.2, padding: '0 4px', textAlign: 'center', wordBreak: 'break-word' }}>
         {t.nome}
       </span>
 
@@ -518,13 +535,17 @@ export default function TavoliPage() {
   const [generandoAI, setGenerandoAI] = useState(false)
   const [showAIForm, setShowAIForm]   = useState(false)
   const [aiForm, setAiForm]           = useState<AIFormValues | null>(null)
-  const [aiPreview, setAiPreview]     = useState<TavoloProposto[] | null>(null)
+  const [previewTavoli, setPreviewTavoli] = useState<Tavolo[] | null>(null)
   const [aiWarnings, setAiWarnings]   = useState<string[]>([])
+  const [formInitial, setFormInitial] = useState<AIFormValues | null>(null)
+  const [formSuggerito, setFormSuggerito] = useState(false)
 
   // refs
   const canvasRef   = useRef<HTMLDivElement>(null)
   const saleRef     = useRef<Sala[]>([])
   const tavoliRef   = useRef<Tavolo[]>([])
+  const previewRef  = useRef<Tavolo[] | null>(null)
+  const previewOriginalRef = useRef<Tavolo[]>([])
   const salaIdRef   = useRef('')
   const tableRefs   = useRef<Record<string, HTMLDivElement | null>>({})
 
@@ -536,6 +557,7 @@ export default function TavoliPage() {
   // keep refs in sync
   useEffect(() => { saleRef.current = sale }, [sale])
   useEffect(() => { tavoliRef.current = tavoli }, [tavoli])
+  useEffect(() => { previewRef.current = previewTavoli }, [previewTavoli])
   useEffect(() => { salaIdRef.current = salaId }, [salaId])
 
   // timer tick every minute
@@ -637,13 +659,18 @@ export default function TavoliPage() {
 
       if (drag.current.type === 'rotate' && drag.current.id) {
         const tid = drag.current.id
-        const t = tavoliRef.current.find(tv => tv.id === tid)
+        const list = previewRef.current ?? tavoliRef.current
+        const t = list.find(tv => tv.id === tid)
         if (t) {
           const tcx = t.pos_x + t.larghezza / 2, tcy = t.pos_y + t.altezza / 2
           const angle = Math.atan2(cx - tcx, -(cy - tcy)) * 180 / Math.PI
           const snapped = Math.round(angle / 5) * 5
-          setTavoli(prev => prev.map(tv => tv.id === tid ? { ...tv, rotazione: snapped } : tv))
-          setDirty(true)
+          if (previewRef.current) {
+            setPreviewTavoli(prev => prev ? prev.map(tv => tv.id === tid ? { ...tv, rotazione: snapped } : tv) : prev)
+          } else {
+            setTavoli(prev => prev.map(tv => tv.id === tid ? { ...tv, rotazione: snapped } : tv))
+            setDirty(true)
+          }
         }
       }
     }
@@ -654,8 +681,12 @@ export default function TavoliPage() {
 
       if (d.type === 'table' && d.id) {
         const pos = { ...dragPos.current }
-        setTavoli(prev => prev.map(t => t.id === d.id ? { ...t, pos_x: pos.x, pos_y: pos.y } : t))
-        setDirty(true)
+        if (previewRef.current) {
+          setPreviewTavoli(prev => prev ? prev.map(t => t.id === d.id ? { ...t, pos_x: pos.x, pos_y: pos.y } : t) : prev)
+        } else {
+          setTavoli(prev => prev.map(t => t.id === d.id ? { ...t, pos_x: pos.x, pos_y: pos.y } : t))
+          setDirty(true)
+        }
       }
       if (d.type === 'vertex') {
         const sala = saleRef.current.find(s => s.id === salaIdRef.current)
@@ -781,9 +812,17 @@ export default function TavoliPage() {
     finally { setSaving(false) }
   }
 
-  // STEP 1 — apre il form intelligente per la sala corrente
+  // STEP 1 — apre il form intelligente per la sala corrente, precompilato con la
+  // configurazione che nel tempo si è rivelata la più stabile (meno modificata
+  // dopo la generazione), o in mancanza di dati sufficienti con l'ultima usata.
   function apriFormAI() {
     if (!salaSel) { toast.error('Seleziona prima una sala'); return }
+    // Reset difensivo: se l'utente era rimasto a metà di un disegno contorno sala,
+    // il tool bloccato su 'drawSala' impedirebbe drag/selezione anche sui tavoli.
+    setTool('select'); setDrawVerts([]); setSelId(null)
+    const suggerita = configurazioneSuggerita()
+    setFormInitial(suggerita ?? ultimaConfigurazione())
+    setFormSuggerito(!!suggerita)
     setShowAIForm(true)
   }
 
@@ -796,6 +835,7 @@ export default function TavoliPage() {
     setShowAIForm(false)
     setGenerandoAI(true)
     setAiForm(form)
+    setSelId(null)
     try {
       const res = await fetch('/api/tavoli/genera-layout', {
         method: 'POST',
@@ -816,9 +856,13 @@ export default function TavoliPage() {
       if (!res.ok) throw new Error(json.error ?? 'Errore generazione')
       if (!json.tavoli?.length) throw new Error('Nessun tavolo generato')
 
-      // STEP 3 — la validazione/correzione automatica è già avvenuta lato server;
-      // qui mostriamo solo l'anteprima con gli eventuali avvisi.
-      setAiPreview(json.tavoli as TavoloProposto[])
+      // STEP 3 — la validazione/correzione automatica è già avvenuta lato server.
+      // L'anteprima diventa una lista di Tavolo a tutti gli effetti (id sintetico,
+      // non ancora salvata): trascinabile, ruotabile e modificabile dal pannello
+      // proprietà esattamente come i tavoli reali, prima di confermare.
+      const generati = (json.tavoli as TavoloProposto[]).map((t, i) => previewToTavolo(t, i, salaId))
+      previewOriginalRef.current = generati
+      setPreviewTavoli(generati)
       setAiWarnings(json.warnings ?? [])
     } catch (err) {
       toast.error('Errore generazione AI: ' + (err as Error).message)
@@ -832,18 +876,33 @@ export default function TavoliPage() {
   }
 
   function annullaPreview() {
-    setAiPreview(null); setAiWarnings([]); setAiForm(null)
+    setPreviewTavoli(null); setAiWarnings([]); setAiForm(null); setSelId(null)
   }
 
-  // Conferma: sostituisce i tavoli attuali della sala con l'anteprima proposta
+  // Quante modifiche manuali l'utente ha fatto tra la generazione e la conferma:
+  // usato per imparare nel tempo quale configurazione richiede meno aggiustamenti.
+  function contaModifiche(attuali: Tavolo[], originali: Tavolo[]): number {
+    let n = Math.abs(attuali.length - originali.length)
+    for (const t of attuali) {
+      const orig = originali.find(o => o.id === t.id)
+      if (!orig) continue // aggiunto/duplicato: già conteggiato nella differenza di lunghezza
+      if (Math.abs(t.pos_x - orig.pos_x) > 2 || Math.abs(t.pos_y - orig.pos_y) > 2 ||
+          Math.abs(t.rotazione - orig.rotazione) > 2 || t.forma !== orig.forma || t.capienza !== orig.capienza) n++
+    }
+    return n
+  }
+
+  // Conferma: sostituisce i tavoli attuali della sala con l'anteprima (comprese
+  // eventuali modifiche manuali fatte trascinando/ridimensionando prima di salvare)
   async function confermaPreview() {
-    if (!aiPreview || !salaId) return
+    if (!previewTavoli || !salaId) return
     setSaving(true)
     try {
       if (tavoli.length > 0) await deleteDB('tavoli', { sala_id: salaId })
-      const rows = await insertDB<Tavolo>('tavoli', aiPreview.map(t => ({ ...t, sala_id: salaId })))
+      const rows = await insertDB<Tavolo>('tavoli', previewTavoli.map(({ id: _id, ...rest }) => ({ ...rest, sala_id: salaId })))
       setTavoli(rows)
       setSelId(null)
+      if (aiForm) registraGenerazione(aiForm, contaModifiche(previewTavoli, previewOriginalRef.current))
       toast.success(`✨ Disposizione salvata: ${rows.length} tavoli in ${salaSel?.nome}`)
       annullaPreview()
     } catch (err) {
@@ -871,16 +930,44 @@ export default function TavoliPage() {
 
   function patchSel(p: Partial<Tavolo>) {
     if (!selId) return
+    if (previewTavoli) {
+      setPreviewTavoli(prev => prev ? prev.map(t => t.id === selId ? { ...t, ...p } : t) : prev)
+      return
+    }
     setTavoli(prev => prev.map(t => t.id === selId ? { ...t, ...p } : t))
     setDirty(true)
   }
 
+  // Elimina/duplica il tavolo selezionato: durante l'anteprima AI sono modifiche
+  // solo locali (non ancora salvate); sui tavoli reali restano operazioni dirette su DB.
+  function deleteSel() {
+    if (!selTavolo) return
+    if (previewTavoli) {
+      setPreviewTavoli(prev => prev ? prev.filter(t => t.id !== selTavolo.id) : prev)
+      setSelId(null)
+      return
+    }
+    deleteTavolo(selTavolo.id)
+  }
+
+  function duplicateSel() {
+    if (!selTavolo) return
+    if (previewTavoli) {
+      const copia: Tavolo = { ...selTavolo, id: `ai-preview-dup-${Date.now()}`, pos_x: selTavolo.pos_x + 24, pos_y: selTavolo.pos_y + 24 }
+      setPreviewTavoli(prev => prev ? [...prev, copia] : prev)
+      setSelId(copia.id)
+      return
+    }
+    duplicateTavolo(selTavolo)
+  }
+
   // ── derived
-  const selTavolo  = tavoli.find(t => t.id === selId) ?? null
+  const displayTavoli = previewTavoli ?? tavoli
+  const selTavolo  = displayTavoli.find(t => t.id === selId) ?? null
   const salaSel    = sale.find(s => s.id === salaId)
   const sedeSel    = sedi.find(s => s.id === sedeId)
   const counts     = STATI.reduce((a, s) => { a[s] = tavoli.filter(t => (statiMap[t.id]?.stato ?? 'libero') === s).length; return a }, {} as Record<Stato,number>)
-  const gruppen    = new Set(tavoli.filter(t => t.unione_gruppo).map(t => t.unione_gruppo!))
+  const gruppen    = new Set(displayTavoli.filter(t => t.unione_gruppo).map(t => t.unione_gruppo!))
 
   // ══════════════════════════════════════ RENDER
   return (
@@ -899,7 +986,7 @@ export default function TavoliPage() {
 
         <div className="flex items-center gap-2 flex-wrap">
           {mode === 'editor' && (
-            <button onClick={apriFormAI} disabled={generandoAI}
+            <button onClick={apriFormAI} disabled={generandoAI || !!previewTavoli}
               title="Analizza coperti, tipo sede e sale esistenti, e propone una disposizione di partenza — puoi modificare tutto dopo"
               className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white rounded-xl shadow-sm transition disabled:opacity-60 disabled:cursor-not-allowed"
               style={{ background: generandoAI ? '#6d28d9' : 'linear-gradient(135deg,#8b5cf6,#7c3aed)' }}>
@@ -958,7 +1045,7 @@ export default function TavoliPage() {
         </button>
 
         {/* Editor tools */}
-        {mode === 'editor' && salaId && (
+        {mode === 'editor' && salaId && !previewTavoli && (
           <div className="ml-auto flex items-center gap-2">
             {tool === 'drawSala' ? (
               <>
@@ -1087,39 +1174,26 @@ export default function TavoliPage() {
                 </svg>
 
                 {/* Empty state */}
-                {tavoli.length === 0 && tool === 'select' && !aiPreview && (
+                {displayTavoli.length === 0 && tool === 'select' && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-400 pointer-events-none" style={{ zIndex:0 }}>
                     <LayoutGrid className="w-14 h-14 opacity-10" />
                     <p className="text-sm">Nessun tavolo — clicca «Tavolo» per aggiungerne uno, oppure «✨ Genera disposizione con AI»</p>
                   </div>
                 )}
 
-                {/* Tables — anteprima AI in sostituzione dei tavoli reali finché non si conferma/annulla */}
-                {aiPreview ? aiPreview.map((t, i) => (
-                  <div key={i} title={t.note ?? t.nome}
-                    style={{
-                      position: 'absolute', left: t.pos_x, top: t.pos_y,
-                      width: t.larghezza, height: (t.forma === 'rotondo' || t.forma === 'quadrato') ? t.larghezza : t.altezza,
-                      borderRadius: (t.forma === 'rotondo' || t.forma === 'ovale') ? '50%' : 8,
-                      transform: `rotate(${t.rotazione}deg)`, transformOrigin: 'center',
-                      border: '2px dashed #7c3aed', background: '#f5f3ff',
-                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                      zIndex: 2,
-                    }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: '#5b21b6' }}>{t.nome}</span>
-                    <span style={{ fontSize: 9, color: '#7c3aed' }}>{t.capienza} pax</span>
-                  </div>
-                )) : tavoli.map(t => {
-                  const st = statiMap[t.id] ?? null
-                  const isUnito = gruppen.has(t.unione_gruppo ?? '') && !!t.unione_gruppo
-                  const timerStr = mode === 'operativo' ? elapsed(st?.ora_apertura ?? null) : null
+                {/* Tables — durante l'anteprima AI sono gli stessi tavoli (trascinabili/modificabili),
+                    solo con lo stile tratteggiato viola finché non si conferma/annulla */}
+                {displayTavoli.map(t => {
+                  const st = previewTavoli ? null : (statiMap[t.id] ?? null)
+                  const isUnito = !previewTavoli && gruppen.has(t.unione_gruppo ?? '') && !!t.unione_gruppo
+                  const timerStr = mode === 'operativo' && !previewTavoli ? elapsed(st?.ora_apertura ?? null) : null
                   return (
-                    <TavoloShape key={t.id} t={t} st={st} mode={mode}
+                    <TavoloShape key={t.id} t={t} st={st} mode={mode} preview={!!previewTavoli}
                       selected={selId === t.id} isUnito={isUnito} timerStr={timerStr}
                       divRef={el => { tableRefs.current[t.id] = el }}
                       onMouseDown={mode==='editor'&&tool==='select' ? (e) => { e.stopPropagation(); startTableDrag(e,t) } : undefined}
                       onRotateStart={mode==='editor' ? (e) => startRotate(e,t) : undefined}
-                      onClick={mode==='operativo' ? () => setOperModal(t) : undefined}
+                      onClick={mode==='operativo' && !previewTavoli ? () => setOperModal(t) : undefined}
                     />
                   )
                 })}
@@ -1127,11 +1201,11 @@ export default function TavoliPage() {
             )}
 
             {/* Barra azioni anteprima AI */}
-            {aiPreview && (
+            {previewTavoli && (
               <div className="flex items-center justify-between gap-3 flex-wrap bg-violet-50 border-t border-violet-200 px-4 py-3">
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-violet-800">
-                    ✨ Anteprima: {aiPreview.length} tavoli proposti per {salaSel?.nome}
+                    ✨ Anteprima: {previewTavoli.length} tavoli proposti per {salaSel?.nome} — trascina o modifica dal pannello prima di salvare
                   </p>
                   {aiWarnings.length > 0 && (
                     <ul className="mt-1 space-y-0.5">
@@ -1158,12 +1232,12 @@ export default function TavoliPage() {
             )}
           </div>
 
-          {/* Editor panel */}
-          {mode === 'editor' && selTavolo && !aiPreview && (
+          {/* Editor panel — funziona identico su tavoli reali e in anteprima AI */}
+          {mode === 'editor' && selTavolo && (
             <EditorPanel
               t={selTavolo} onChange={patchSel}
-              onDelete={() => deleteTavolo(selTavolo.id)}
-              onDuplicate={() => duplicateTavolo(selTavolo)}
+              onDelete={deleteSel}
+              onDuplicate={duplicateSel}
               onClose={() => setSelId(null)}
             />
           )}
@@ -1194,6 +1268,8 @@ export default function TavoliPage() {
         <GeneraAIFormModal
           salaNome={salaSel.nome}
           defaultNum={salaSel.larghezza_metri && salaSel.altezza_metri ? Math.max(4, Math.round((salaSel.larghezza_metri * salaSel.altezza_metri) / 5)) : 10}
+          initial={formInitial}
+          suggerito={formSuggerito}
           onGenera={eseguiGenerazione}
           onClose={() => setShowAIForm(false)}
         />

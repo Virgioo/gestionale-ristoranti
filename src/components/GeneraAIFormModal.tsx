@@ -25,19 +25,21 @@ const LAYOUT_OPTS: Array<{ key: AIFormValues['layoutPref']; label: string; desc:
   { key: 'massimizza', label: 'Massimizza spazio', desc: 'più tavoli possibile' },
 ]
 
-export default function GeneraAIFormModal({ salaNome, defaultNum, onGenera, onClose }: {
+export default function GeneraAIFormModal({ salaNome, defaultNum, initial, suggerito, onGenera, onClose }: {
   salaNome: string
   defaultNum: number
+  initial?: AIFormValues | null
+  suggerito?: boolean
   onGenera: (v: AIFormValues) => void
   onClose: () => void
 }) {
-  const [numTavoli, setNumTavoli] = useState(defaultNum)
-  const [due, setDue] = useState(20)
-  const [quattro, setQuattro] = useState(60)
-  const [seiPiu, setSeiPiu] = useState(20)
-  const [speciali, setSpeciali] = useState<Set<string>>(new Set())
-  const [layoutPref, setLayoutPref] = useState<AIFormValues['layoutPref']>('classico')
-  const [note, setNote] = useState('')
+  const [numTavoli, setNumTavoli] = useState(initial?.numTavoli ?? defaultNum)
+  const [due, setDue] = useState(initial?.mix.due ?? 20)
+  const [quattro, setQuattro] = useState(initial?.mix.quattro ?? 60)
+  const [seiPiu, setSeiPiu] = useState(initial?.mix.seiPiu ?? 20)
+  const [speciali, setSpeciali] = useState<Set<string>>(new Set(initial?.speciali ?? []))
+  const [layoutPref, setLayoutPref] = useState<AIFormValues['layoutPref']>(initial?.layoutPref ?? 'classico')
+  const [note, setNote] = useState(initial?.note ?? '')
 
   const totale = due + quattro + seiPiu
 
@@ -73,6 +75,12 @@ export default function GeneraAIFormModal({ salaNome, defaultNum, onGenera, onCl
           </h3>
           <button onClick={onClose}><X className="w-4 h-4 text-slate-400" /></button>
         </div>
+
+        {suggerito && (
+          <p className="text-[11px] text-violet-600 bg-violet-50 border border-violet-100 rounded-lg px-2.5 py-1.5 mb-4">
+            💡 Precompilato con la configurazione che in passato hai modificato meno dopo la generazione.
+          </p>
+        )}
 
         <form onSubmit={submit} className="space-y-4">
           <div>
